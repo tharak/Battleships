@@ -13,7 +13,7 @@ export type Formation = {
 
 const FLEET_SIZE = 10;
 const FORMATION_ROWS: Record<FormationPattern, number[]> = {
-  "1-2-3-4": [1, 2, 3, 4],
+  "1-2-3-4": [4, 3, 2, 1],
   "3-4-3": [3, 4, 3],
   "5-5": [5, 5],
 };
