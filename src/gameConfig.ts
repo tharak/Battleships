@@ -24,7 +24,7 @@ export type GameConfig = {
 
 export const gameConfig: GameConfig = {
   ship: {
-    maxHp: 7,
+    maxHp: 15,
     range: 3,
     damage: 1,
   },
