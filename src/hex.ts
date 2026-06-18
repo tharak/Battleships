@@ -9,7 +9,7 @@ export type Point = {
 };
 
 export const GRID_WIDTH = 15;
-export const GRID_HEIGHT = 30;
+export const GRID_HEIGHT = 20;
 
 const SQRT3 = Math.sqrt(3);
 const DIRECTIONS: Hex[] = [
