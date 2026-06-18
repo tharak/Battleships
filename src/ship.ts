@@ -1,17 +1,14 @@
-import { Hex, Point, hexKey } from './hex';
+import { gameConfig } from "./gameConfig";
+import { Hex, Point, hexKey } from "./hex";
 
-export type FleetSide = 'player' | 'enemy';
-
-export const SHIP_MAX_HP = 7;
-export const SHIP_RANGE = 3;
-export const SHIP_DAMAGE = 1;
+export type FleetSide = "player" | "enemy";
 
 export class Ship {
   readonly id: string;
   readonly side: FleetSide;
   hex: Hex;
   previousHex: Hex;
-  hp = SHIP_MAX_HP;
+  hp = gameConfig.ship.maxHp;
   renderPoint: Point | null = null;
 
   constructor(id: string, side: FleetSide, hex: Hex) {

@@ -18,7 +18,7 @@
           <h1>Hex Fleet Command</h1>
         </div>
 
-        <div class="status" id="phaseStatus">Setup: place 10 ships in the lower half.</div>
+        <div class="status" id="phaseStatus">Setup: tune fleets, then start battle.</div>
 
         <section class="info-block">
           <h2>Enemy Formation</h2>
@@ -31,14 +31,68 @@
         </section>
 
         <div class="controls">
-          <button id="placeShipsButton" type="button">Place Ships</button>
-          <button id="randomizeButton" type="button">Randomize Player Placement</button>
           <button id="startButton" type="button" class="primary">Start Battle</button>
           <button id="restartButton" type="button">Restart</button>
         </div>
 
+
+        <details id="debugPanel" class="debug-panel" open>
+          <summary>Debug Tuning</summary>
+
+          <section class="debug-section">
+            <h2>Boids Steering</h2>
+            <label>Separation <input data-config="steering.separation" type="number" min="0" max="10" step="0.1" /></label>
+            <label>Cohesion <input data-config="steering.cohesion" type="number" min="0" max="10" step="0.1" /></label>
+            <label>Alignment <input data-config="steering.alignment" type="number" min="0" max="10" step="0.1" /></label>
+            <label>Target <input data-config="steering.target" type="number" min="0" max="10" step="0.1" /></label>
+          </section>
+
+          <section class="debug-section">
+            <h2>Enemy Fleet</h2>
+            <label>Pattern
+              <select data-config="enemyFormation.pattern">
+                <option value="1-2-3-4">1-2-3-4</option>
+                <option value="3-4-3">3-4-3</option>
+                <option value="5-5">5-5</option>
+              </select>
+            </label>
+            <label>Spacing <input data-config="enemyFormation.spacing" type="number" min="0" max="3" step="1" /></label>
+            <label>Strategy
+              <select data-config="enemyFormation.strategy">
+                <option value="attack">attack</option>
+                <option value="defense">defense</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="debug-section">
+            <h2>Player Fleet</h2>
+            <label>Pattern
+              <select data-config="playerFormation.pattern">
+                <option value="1-2-3-4">1-2-3-4</option>
+                <option value="3-4-3">3-4-3</option>
+                <option value="5-5">5-5</option>
+              </select>
+            </label>
+            <label>Spacing <input data-config="playerFormation.spacing" type="number" min="0" max="3" step="1" /></label>
+            <label>Strategy
+              <select data-config="playerFormation.strategy">
+                <option value="attack">attack</option>
+                <option value="defense">defense</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="debug-section">
+            <h2>Ship Stats</h2>
+            <label>HP <input data-config="ship.maxHp" type="number" min="1" max="30" step="1" /></label>
+            <label>Range <input data-config="ship.range" type="number" min="1" max="12" step="1" /></label>
+            <label>Damage <input data-config="ship.damage" type="number" min="1" max="10" step="1" /></label>
+          </section>
+        </details>
+
         <div class="hint">
-          Click empty lower-half hexes to place ships. Click one of your placed ships to remove it during setup.
+          Tune the player and enemy formations before battle. Both fleets are generated from the selected setup values.
         </div>
       </aside>
     </main>

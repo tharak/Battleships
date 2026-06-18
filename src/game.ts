@@ -9,21 +9,17 @@ import {
   hexLine,
   hexToPixel,
   hexesInRange,
-  isInBounds,
   isPlayerZone,
-  pixelToHex,
-  sameHex,
 } from "./hex";
 import {
   Fleet,
   createEnemyFleet,
   createPlayerFleet,
-  isPlacementValid,
-  randomPlayerPositions,
   sortTargetsByDistance,
 } from "./fleet";
+import { gameConfig } from "./gameConfig";
 import { FleetManager } from "./fleetManager";
-import { SHIP_DAMAGE, SHIP_MAX_HP, SHIP_RANGE, Ship } from "./ship";
+import { Ship } from "./ship";
 import { UiElements, hideTooltip, renderFleetStatus, renderFormationInfo, showTooltip } from "./ui";
 import { clamp, lerp } from "./utils";
 
@@ -46,9 +42,8 @@ type DamagePopup = {
 export class Game {
   private readonly ctx: CanvasRenderingContext2D;
   private phase: GamePhase = "setup";
-  private playerPlacements: Hex[] = [];
-  private enemyFleet = createEnemyFleet();
-  private playerFleet = createPlayerFleet([]);
+  private enemyFleet = createEnemyFleet(gameConfig.enemyFormation);
+  private playerFleet = createPlayerFleet(gameConfig.playerFormation);
   private size = 16;
   private origin: Point = { x: 0, y: 0 };
   private hoveredShip: Ship | null = null;
@@ -70,15 +65,15 @@ export class Game {
     }
     this.ctx = ctx;
     this.bindEvents();
+    this.syncDebugControls();
     this.restart();
     requestAnimationFrame((time) => this.frame(time));
   }
 
   restart(): void {
     this.phase = "setup";
-    this.playerPlacements = [];
-    this.enemyFleet = createEnemyFleet();
-    this.playerFleet = createPlayerFleet([]);
+    this.enemyFleet = createEnemyFleet(gameConfig.enemyFormation);
+    this.playerFleet = createPlayerFleet(gameConfig.playerFormation);
     this.shots = [];
     this.popups = [];
     this.roundTimer = 0;
@@ -93,11 +88,83 @@ export class Game {
       this.hoveredShip = null;
       hideTooltip(this.ui.tooltip);
     });
-    this.canvas.addEventListener("click", (event) => this.onClick(event));
-    this.ui.placeShipsButton.addEventListener("click", () => this.clearPlayerPlacement());
-    this.ui.randomizeButton.addEventListener("click", () => this.randomizePlayerPlacement());
     this.ui.startButton.addEventListener("click", () => this.startBattle());
     this.ui.restartButton.addEventListener("click", () => this.restart());
+    this.ui.debugPanel.addEventListener("input", (event) => this.onDebugInput(event));
+    this.ui.debugPanel.addEventListener("change", (event) => this.onDebugInput(event));
+  }
+
+  private onDebugInput(event: Event): void {
+    if (this.phase !== "setup") {
+      return;
+    }
+
+    const control = event.target;
+    if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    const path = control.dataset.config;
+    if (!path) {
+      return;
+    }
+
+    const value = control instanceof HTMLInputElement && control.type === "number" ? Number(control.value) : control.value;
+    this.setConfigValue(path, value);
+    this.rebuildSetupFleets();
+    this.syncDebugControls();
+  }
+
+  private rebuildSetupFleets(): void {
+    this.enemyFleet = createEnemyFleet(gameConfig.enemyFormation);
+    this.playerFleet = createPlayerFleet(gameConfig.playerFormation);
+    this.updateUi();
+  }
+
+  private syncDebugControls(): void {
+    const controls = this.ui.debugPanel.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-config]");
+    controls.forEach((control) => {
+      const path = control.dataset.config;
+      if (!path) {
+        return;
+      }
+      control.value = String(this.getConfigValue(path));
+    });
+  }
+
+  private setDebugControlsDisabled(disabled: boolean): void {
+    const controls = this.ui.debugPanel.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-config]");
+    controls.forEach((control) => {
+      control.disabled = disabled;
+    });
+  }
+
+  private getConfigValue(path: string): string | number {
+    return path.split(".").reduce<unknown>((source, key) => {
+      if (source && typeof source === "object" && key in source) {
+        return (source as Record<string, unknown>)[key];
+      }
+      return "";
+    }, gameConfig) as string | number;
+  }
+
+  private setConfigValue(path: string, value: string | number): void {
+    const keys = path.split(".");
+    const lastKey = keys.pop();
+    if (!lastKey) {
+      return;
+    }
+
+    const target = keys.reduce<unknown>((source, key) => {
+      if (source && typeof source === "object" && key in source) {
+        return (source as Record<string, unknown>)[key];
+      }
+      return undefined;
+    }, gameConfig);
+
+    if (target && typeof target === "object") {
+      (target as Record<string, string | number>)[lastKey] = typeof value === "number" && Number.isFinite(value) ? value : String(value);
+    }
   }
 
   private resize(): void {
@@ -149,31 +216,6 @@ export class Game {
     }
   }
 
-  private onClick(event: PointerEvent): void {
-    if (this.phase !== "setup") {
-      return;
-    }
-
-    const hex = this.eventToHex(event);
-    if (!hex || !isInBounds(hex)) {
-      return;
-    }
-
-    const existingIndex = this.playerPlacements.findIndex((placed) => sameHex(placed, hex));
-    if (existingIndex >= 0) {
-      this.playerPlacements.splice(existingIndex, 1);
-      this.syncPlayerFleet();
-      return;
-    }
-
-    if (this.playerPlacements.length >= 10 || !isPlacementValid(hex, this.playerPlacements, this.enemyFleet.ships)) {
-      return;
-    }
-
-    this.playerPlacements.push(hex);
-    this.syncPlayerFleet();
-  }
-
   private onPointerMove(event: PointerEvent): void {
     const point = this.eventPoint(event);
     const ships = [...this.playerFleet.aliveShips, ...this.enemyFleet.aliveShips];
@@ -188,32 +230,15 @@ export class Game {
         this.ui.tooltip,
         event.clientX,
         event.clientY,
-        `${this.hoveredShip.side === "player" ? "Player" : "Enemy"} ship - HP ${this.hoveredShip.hp}/${SHIP_MAX_HP} - Range ${SHIP_RANGE}`,
+        `${this.hoveredShip.side === "player" ? "Player" : "Enemy"} ship - HP ${this.hoveredShip.hp}/${gameConfig.ship.maxHp} - Range ${gameConfig.ship.range}`,
       );
     } else {
       hideTooltip(this.ui.tooltip);
     }
   }
 
-  private clearPlayerPlacement(): void {
-    if (this.phase !== "setup") {
-      return;
-    }
-    this.playerPlacements = [];
-    this.syncPlayerFleet();
-  }
-
-  private randomizePlayerPlacement(): void {
-    if (this.phase !== "setup") {
-      return;
-    }
-    const blocked = new Set(this.enemyFleet.ships.map((ship) => ship.key));
-    this.playerPlacements = randomPlayerPositions(blocked);
-    this.syncPlayerFleet();
-  }
-
   private startBattle(): void {
-    if (this.phase !== "setup" || this.playerPlacements.length !== 10) {
+    if (this.phase !== "setup" || this.playerFleet.ships.length !== 10) {
       return;
     }
     this.phase = "battle";
@@ -221,17 +246,14 @@ export class Game {
     this.updateUi();
   }
 
-  private syncPlayerFleet(): void {
-    this.playerFleet = createPlayerFleet(this.playerPlacements, "attack");
-    this.updateUi();
-  }
-
   private simulateRound(): void {
+    const actedShipIds = new Set<string>();
+    this.fireFleet(this.playerFleet, this.enemyFleet, actedShipIds);
+    this.fireFleet(this.enemyFleet, this.playerFleet, actedShipIds);
+
     const occupied = this.occupiedKeys();
-    this.fleetManager.moveFleet(this.playerFleet, this.enemyFleet, occupied);
-    this.fleetManager.moveFleet(this.enemyFleet, this.playerFleet, occupied);
-    this.fireFleet(this.playerFleet, this.enemyFleet);
-    this.fireFleet(this.enemyFleet, this.playerFleet);
+    this.fleetManager.moveFleet(this.playerFleet, this.enemyFleet, occupied, actedShipIds);
+    this.fleetManager.moveFleet(this.enemyFleet, this.playerFleet, occupied, actedShipIds);
 
     if (this.enemyFleet.isDestroyed) {
       this.phase = "victory";
@@ -241,13 +263,13 @@ export class Game {
     this.updateUi();
   }
 
-  private fireFleet(fleet: Fleet, enemy: Fleet): void {
+  private fireFleet(fleet: Fleet, enemy: Fleet, actedShipIds: Set<string>): void {
     for (const ship of fleet.aliveShips) {
       const target = this.findTarget(ship, enemy.aliveShips, fleet.aliveShips);
       if (!target) {
         continue;
       }
-      target.takeDamage(SHIP_DAMAGE);
+      target.takeDamage(gameConfig.ship.damage);
       const from = this.shipPoint(ship);
       const to = this.shipPoint(target);
       this.shots.push({
@@ -257,7 +279,8 @@ export class Game {
         ttl: 260,
         maxTtl: 260,
       });
-      this.popups.push({ text: "-1", point: { ...to }, ttl: 620 });
+      this.popups.push({ text: "-" + String(gameConfig.ship.damage), point: { ...to }, ttl: 620 });
+      actedShipIds.add(ship.id);
     }
   }
 
@@ -265,7 +288,7 @@ export class Game {
     return (
       sortTargetsByDistance(
         source,
-        targets.filter((target) => hexDistance(source.hex, target.hex) <= SHIP_RANGE),
+        targets.filter((target) => hexDistance(source.hex, target.hex) <= gameConfig.ship.range),
       ).find((target) => !this.allyBlocksShot(source, target, allies)) ?? null
     );
   }
@@ -283,13 +306,11 @@ export class Game {
   private updateUi(): void {
     renderFormationInfo(this.ui.formationInfo, this.enemyFleet.formation);
     renderFleetStatus(this.ui.fleetStatus, this.playerFleet, this.enemyFleet);
-    this.ui.startButton.disabled = this.phase !== "setup" || this.playerPlacements.length !== 10;
-    this.ui.placeShipsButton.disabled = this.phase !== "setup";
-    this.ui.randomizeButton.disabled = this.phase !== "setup";
-
-    const setupCount = `${this.playerPlacements.length}/10`;
+    this.ui.startButton.disabled = this.phase !== "setup" || this.playerFleet.ships.length !== 10;
+    this.ui.debugPanel.classList.toggle("is-locked", this.phase !== "setup");
+    this.setDebugControlsDisabled(this.phase !== "setup");
     const messages: Record<GamePhase, string> = {
-      setup: `Setup: place ${setupCount} player ships in the lower half.`,
+      setup: "Setup: tune fleets, then start battle.",
       battle: "Battle running: fleets advance and fire each round.",
       victory: "Victory: enemy fleet destroyed.",
       defeat: "Defeat: player fleet destroyed.",
@@ -337,7 +358,7 @@ export class Game {
     this.ctx.save();
     this.ctx.strokeStyle = this.hoveredShip.side === "player" ? "rgba(96, 255, 214, 0.4)" : "rgba(255, 79, 119, 0.38)";
     this.ctx.lineWidth = 1.5;
-    for (const hex of hexesInRange(this.hoveredShip.hex, SHIP_RANGE)) {
+    for (const hex of hexesInRange(this.hoveredShip.hex, gameConfig.ship.range)) {
       this.traceHex(hex);
       this.ctx.stroke();
     }
@@ -380,7 +401,7 @@ export class Game {
     this.ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
     this.ctx.fillRect(x, y, width, height);
     this.ctx.fillStyle = ship.side === "player" ? "#60ffd6" : "#ff4f77";
-    this.ctx.fillRect(x, y, width * (ship.hp / SHIP_MAX_HP), height);
+    this.ctx.fillRect(x, y, width * (ship.hp / gameConfig.ship.maxHp), height);
   }
 
   private renderEffects(): void {
@@ -472,12 +493,6 @@ export class Game {
     }
 
     return ship.side === "player" ? -Math.PI / 2 : Math.PI / 2;
-  }
-
-  private eventToHex(event: PointerEvent): Hex | null {
-    const point = this.eventPoint(event);
-    const hex = pixelToHex(point, this.size, this.origin);
-    return isInBounds(hex) ? hex : null;
   }
 
   private eventPoint(event: PointerEvent): Point {

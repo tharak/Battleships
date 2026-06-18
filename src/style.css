@@ -200,3 +200,55 @@ dd {
     border-left: 0;
   }
 }
+
+.debug-panel {
+  display: grid;
+  gap: 12px;
+  max-height: 38vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid rgba(88, 219, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.debug-panel summary {
+  cursor: pointer;
+  color: #60ffd6;
+  font-weight: 800;
+}
+
+.debug-panel.is-locked {
+  opacity: 0.55;
+}
+
+.debug-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.debug-section + .debug-section {
+  border-top: 1px solid rgba(88, 219, 255, 0.14);
+}
+
+.debug-section label {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) minmax(84px, 120px);
+  align-items: center;
+  gap: 10px;
+  color: #b6dce7;
+  font-size: 0.86rem;
+}
+
+.debug-section input,
+.debug-section select {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid rgba(88, 219, 255, 0.28);
+  border-radius: 6px;
+  background: #081524;
+  color: #eafffb;
+  font: inherit;
+  padding: 4px 8px;
+}

@@ -1,9 +1,10 @@
-import { BOARD_HEXES, Hex, boardY, hexDistance, hexKey, isInBounds, isPlayerZone } from './hex';
-import { FleetSide, Ship } from './ship';
-import { choice, randomInt, shuffle } from './utils';
+import { gameConfig } from "./gameConfig";
+import { BOARD_HEXES, Hex, boardY, hexDistance, hexKey, isInBounds, isPlayerZone } from "./hex";
+import { FleetSide, Ship } from "./ship";
+import { choice, randomInt, shuffle } from "./utils";
 
-export type FormationPattern = '1-2-3-4' | '3-4-3' | '5-5';
-export type FleetStrategy = 'attack' | 'defense';
+export type FormationPattern = "1-2-3-4" | "3-4-3" | "5-5";
+export type FleetStrategy = "attack" | "defense";
 
 export type Formation = {
   pattern: FormationPattern;
@@ -12,8 +13,10 @@ export type Formation = {
 };
 
 const FLEET_SIZE = 10;
+export const FORMATION_PATTERNS: FormationPattern[] = ["1-2-3-4", "3-4-3", "5-5"];
+export const FLEET_STRATEGIES: FleetStrategy[] = ["attack", "defense"];
 const FORMATION_ROWS: Record<FormationPattern, number[]> = {
-  "1-2-3-4": [4, 3, 2, 1],
+  "1-2-3-4": [1, 2, 3, 4],
   "3-4-3": [3, 4, 3],
   "5-5": [5, 5],
 };
@@ -44,57 +47,34 @@ export class Fleet {
 
 export function randomFormation(): Formation {
   return {
-    pattern: choice<FormationPattern>(['1-2-3-4', '3-4-3', '5-5']),
+    pattern: choice<FormationPattern>(FORMATION_PATTERNS),
     spacing: randomInt(0, 2),
-    strategy: choice<FleetStrategy>(['attack', 'defense']),
+    strategy: choice<FleetStrategy>(FLEET_STRATEGIES),
   };
 }
 
-export function createEnemyFleet(): Fleet {
-  const formation = randomFormation();
-  const positions = buildFormationPositions(formation, 'enemy');
-  return new Fleet(
-    'enemy',
-    formation,
-    positions.map((hex, index) => new Ship("enemy-" + String(index + 1), 'enemy', hex)),
-  );
+export function createEnemyFleet(formation: Formation = gameConfig.enemyFormation): Fleet {
+  return createFleet("enemy", formation);
 }
 
-export function createPlayerFleet(positions: Hex[], strategy: FleetStrategy = 'attack'): Fleet {
-  return new Fleet(
-    'player',
-    { pattern: '5-5', spacing: 1, strategy },
-    positions.map((hex, index) => new Ship("player-" + String(index + 1), 'player', hex)),
-  );
-}
-
-export function randomPlayerPositions(blocked: Set<string> = new Set()): Hex[] {
-  return shuffle(BOARD_HEXES.filter((hex) => isPlayerZone(hex) && !blocked.has(hexKey(hex)))).slice(0, FLEET_SIZE);
+export function createPlayerFleet(formation: Formation = gameConfig.playerFormation, positions?: Hex[]): Fleet {
+  return createFleet("player", formation, positions);
 }
 
 export function buildFormationPositions(formation: Formation, side: FleetSide): Hex[] {
-  const rows = side === 'enemy' ? FORMATION_ROWS[formation.pattern] : [...FORMATION_ROWS[formation.pattern]].reverse();
+  const rows = FORMATION_ROWS[formation.pattern];
   const anchors = [...BOARD_HEXES]
-    .filter((hex) => (side === 'enemy' ? !isPlayerZone(hex) : isPlayerZone(hex)))
-    .sort((a, b) => (side === 'enemy' ? boardY(a) - boardY(b) : boardY(b) - boardY(a)) || Math.abs(a.q) - Math.abs(b.q));
+    .filter((hex) => (side === "enemy" ? !isPlayerZone(hex) : isPlayerZone(hex)))
+    .sort((a, b) => (side === "enemy" ? boardY(a) - boardY(b) : boardY(b) - boardY(a)) || Math.abs(a.q) - Math.abs(b.q));
 
   for (const anchor of anchors) {
     const positions = formationAt(anchor, rows, formation.spacing, side);
-    if (positions.length === FLEET_SIZE && positions.every((hex) => side === 'enemy' ? !isPlayerZone(hex) : isPlayerZone(hex))) {
+    if (positions.length === FLEET_SIZE && positions.every((hex) => side === "enemy" ? !isPlayerZone(hex) : isPlayerZone(hex))) {
       return positions;
     }
   }
 
   return shuffle(anchors).slice(0, FLEET_SIZE);
-}
-
-export function isPlacementValid(hex: Hex, existing: Hex[], enemyShips: Ship[]): boolean {
-  if (!isInBounds(hex) || !isPlayerZone(hex)) {
-    return false;
-  }
-
-  const key = hexKey(hex);
-  return !existing.some((placed) => hexKey(placed) === key) && !enemyShips.some((ship) => ship.key === key);
 }
 
 export function sortTargetsByDistance(source: Ship, targets: Ship[]): Ship[] {
@@ -104,9 +84,19 @@ export function sortTargetsByDistance(source: Ship, targets: Ship[]): Ship[] {
   });
 }
 
+function createFleet(side: FleetSide, formation: Formation, explicitPositions?: Hex[]): Fleet {
+  const resolvedFormation = { ...formation };
+  const positions = explicitPositions ?? buildFormationPositions(resolvedFormation, side);
+  return new Fleet(
+    side,
+    resolvedFormation,
+    positions.map((hex, index) => new Ship(side + "-" + String(index + 1), side, hex)),
+  );
+}
+
 function formationAt(anchor: Hex, rows: number[], spacing: number, side: FleetSide): Hex[] {
   const step = spacing + 1;
-  const rowDirection = side === 'enemy' ? 1 : -1;
+  const rowDirection = side === "enemy" ? 1 : -1;
   const positions: Hex[] = [];
   const occupied = new Set<string>();
 

@@ -1,8 +1,9 @@
-import { Fleet, sortTargetsByDistance } from './fleet';
-import { Hex, boardY, hexDistance, hexKey, neighbors } from './hex';
-import { Ship } from './ship';
+import { gameConfig } from "./gameConfig";
+import { Fleet, sortTargetsByDistance } from "./fleet";
+import { Hex, boardY, hexDistance, hexKey, neighbors } from "./hex";
+import { Ship } from "./ship";
 
-type SteeringWeights = {
+export type SteeringWeights = {
   separation: number;
   cohesion: number;
   alignment: number;
@@ -14,20 +15,14 @@ type FleetCenter = {
   r: number;
 };
 
-const DEFAULT_WEIGHTS: SteeringWeights = {
-  separation: 1,
-  cohesion: 1,
-  alignment: 1,
-  target: 4,
-};
-
 export class FleetManager {
-  constructor(private readonly weights: SteeringWeights = DEFAULT_WEIGHTS) {}
+  constructor(private readonly weights: SteeringWeights = gameConfig.steering) {}
 
-  moveFleet(fleet: Fleet, enemy: Fleet, occupied: Set<string>): void {
-    if (fleet.formation.strategy == 'attack') {
-      this.weights.target = 3;
-    } 
+  moveFleet(fleet: Fleet, enemy: Fleet, occupied: Set<string>, actedShipIds: Set<string> = new Set()): void {
+    if (fleet.formation.strategy !== "attack") {
+      this.holdFleetFormation(fleet);
+      return;
+    }
 
     const allies = fleet.aliveShips;
     const enemies = enemy.aliveShips;
@@ -36,6 +31,11 @@ export class FleetManager {
     }
 
     for (const ship of allies) {
+      if (actedShipIds.has(ship.id)) {
+        ship.previousHex = { ...ship.hex };
+        continue;
+      }
+
       const target = sortTargetsByDistance(ship, enemies)[0];
       if (!target) {
         ship.previousHex = { ...ship.hex };
@@ -54,14 +54,27 @@ export class FleetManager {
     }
   }
 
+  private holdFleetFormation(fleet: Fleet): void {
+    for (const ship of fleet.aliveShips) {
+      ship.previousHex = { ...ship.hex };
+    }
+  }
+
   private bestBoidMove(ship: Ship, target: Ship, allies: Ship[], occupied: Set<string>): Hex | null {
     const currentDistance = hexDistance(ship.hex, target.hex);
     const center = this.fleetCenter(allies.filter((ally) => ally.id !== ship.id));
+    const currentScore = this.scoreMove(ship, ship.hex, target.hex, currentDistance, allies, center);
     const candidates = neighbors(ship.hex).filter((hex) => !occupied.has(hexKey(hex)));
 
-    return candidates
+    const best = candidates
       .map((hex) => ({ hex, score: this.scoreMove(ship, hex, target.hex, currentDistance, allies, center) }))
-      .sort((a, b) => b.score - a.score)[0]?.hex ?? null;
+      .sort((a, b) => b.score - a.score)[0];
+
+    if (!best || best.score <= currentScore) {
+      return null;
+    }
+
+    return best.hex;
   }
 
   private scoreMove(ship: Ship, candidate: Hex, target: Hex, currentDistance: number, allies: Ship[], center: FleetCenter): number {
@@ -86,28 +99,31 @@ export class FleetManager {
 
       const distance = hexDistance(candidate, ally.hex);
       if (distance === 0) {
-        return score - 6;
+        return score - 10;
       }
       if (distance === 1) {
-        return score - 3;
+        return score - 4;
       }
       if (distance === 2) {
-        return score - 0.8;
+        return score + 2;
       }
-      return score + 0.15;
+      if (distance === 3) {
+        return score + 0.8;
+      }
+      return score - 0.35;
     }, 0);
   }
 
   private alignmentScore(ship: Ship, candidate: Hex): number {
-    const direction = ship.side === 'player' ? -1 : 1;
+    const direction = ship.side === "player" ? -1 : 1;
     const deltaY = boardY(candidate) - boardY(ship.hex);
     if (deltaY * direction > 0) {
-      return 1;
+      return 0.6;
     }
     if (deltaY === 0) {
-      return 0.25;
+      return 0.2;
     }
-    return -1.25;
+    return -0.8;
   }
 
   private fleetCenter(ships: Ship[]): FleetCenter {

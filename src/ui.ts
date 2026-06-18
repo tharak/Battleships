@@ -1,3 +1,4 @@
+import { gameConfig } from "./gameConfig";
 import { Fleet, Formation } from "./fleet";
 import { formatStrategy } from "./utils";
 
@@ -6,10 +7,9 @@ export type UiElements = {
   formationInfo: HTMLElement;
   fleetStatus: HTMLElement;
   tooltip: HTMLElement;
-  placeShipsButton: HTMLButtonElement;
-  randomizeButton: HTMLButtonElement;
   startButton: HTMLButtonElement;
   restartButton: HTMLButtonElement;
+  debugPanel: HTMLElement;
 };
 
 export function getUiElements(): UiElements {
@@ -18,10 +18,9 @@ export function getUiElements(): UiElements {
     formationInfo: requireElement("formationInfo"),
     fleetStatus: requireElement("fleetStatus"),
     tooltip: requireElement("tooltip"),
-    placeShipsButton: requireElement("placeShipsButton"),
-    randomizeButton: requireElement("randomizeButton"),
     startButton: requireElement("startButton"),
     restartButton: requireElement("restartButton"),
+    debugPanel: requireElement("debugPanel"),
   };
 }
 
@@ -55,7 +54,7 @@ function fleetRow(label: string, ships: number, hp: number): string {
   return `
     <div class="fleet-row">
       <span>${label}</span>
-      <strong>${ships}/10 ships - ${hp}/70 HP</strong>
+      <strong>${ships}/10 ships - ${hp}/${gameConfig.ship.maxHp * 10} HP</strong>
     </div>
   `;
 }

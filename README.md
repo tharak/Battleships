@@ -5,8 +5,8 @@ Space Battleships is a standalone TypeScript browser game built with Vite and HT
 ## Gameplay
 
 - Enemy fleet starts visible at the top in a random formation.
-- Player places 10 ships in the lower half of the map.
-- Every ship occupies one hex, has 7 HP, range 3, and deals 1 damage.
+- Player fleet starts in the lower half using the selected setup formation.
+- Every ship occupies one hex. HP, range, and damage can be tuned from the setup debug panel.
 - Attack fleets move one hex toward the enemy before firing.
 - Defense fleets hold position and fire at ships in range.
 - Ships target the closest enemy in range. Allied ships on the shot line block fire.
@@ -14,12 +14,10 @@ Space Battleships is a standalone TypeScript browser game built with Vite and HT
 
 ## Controls
 
-- Click an empty lower-half hex to place a player ship.
-- Click a placed player ship during setup to remove it.
-- Use **Randomize Player Placement** to quickly place all 10 ships.
-- Use **Start Battle** after placing all ships.
+- Tune player and enemy formations in the setup debug panel.
+- Use **Start Battle** when both generated fleets look right.
 - Hover ships to inspect HP and range.
-- Use **Restart** to generate a new enemy formation.
+- Use **Restart** to reset both fleets from the current setup values.
 
 ## Project Structure
 
@@ -27,8 +25,9 @@ Space Battleships is a standalone TypeScript browser game built with Vite and HT
 src/
   fleet.ts     Fleet creation, formations, placement helpers
   fleetManager.ts  Boids-style fleet movement manager
+  gameConfig.ts  Setup-time tuning defaults
   game.ts      Canvas renderer, input handling, battle state machine
-  hex.ts       Flat-top axial hex coordinates and utilities
+  hex.ts       Pointy-top axial hex coordinates and utilities
   main.ts      App entrypoint
   ship.ts      Ship model and constants
   style.css    Responsive dark space UI
