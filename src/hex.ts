@@ -41,7 +41,7 @@ export function isInBounds(hex: Hex): boolean {
 }
 
 export function boardY(hex: Hex): number {
-  return hex.r + hex.q / 2;
+  return hex.r;
 }
 
 export function isPlayerZone(hex: Hex): boolean {
@@ -50,21 +50,21 @@ export function isPlayerZone(hex: Hex): boolean {
 
 export function hexToPixel(hex: Hex, size: number, origin: Point): Point {
   return {
-    x: origin.x + size * 1.5 * hex.q,
-    y: origin.y + size * SQRT3 * boardY(hex),
+    x: origin.x + size * SQRT3 * (hex.q + hex.r / 2),
+    y: origin.y + size * 1.5 * hex.r,
   };
 }
 
 export function pixelToHex(point: Point, size: number, origin: Point): Hex {
   const x = (point.x - origin.x) / size;
   const y = (point.y - origin.y) / size;
-  return roundHex({ q: (2 / 3) * x, r: (-1 / 3) * x + (SQRT3 / 3) * y });
+  return roundHex({ q: (SQRT3 / 3) * x - (1 / 3) * y, r: (2 / 3) * y });
 }
 
 export function hexCorners(hex: Hex, size: number, origin: Point): Point[] {
   const center = hexToPixel(hex, size, origin);
   return Array.from({ length: 6 }, (_, index) => {
-    const angle = (Math.PI / 180) * (60 * index);
+    const angle = (Math.PI / 180) * (30 + 60 * index);
     return {
       x: center.x + size * Math.cos(angle),
       y: center.y + size * Math.sin(angle),

@@ -2,7 +2,6 @@ import {
   BOARD_HEXES,
   Hex,
   Point,
-  boardY,
   gridPixelBounds,
   hexCorners,
   hexDistance,
@@ -12,7 +11,6 @@ import {
   hexesInRange,
   isInBounds,
   isPlayerZone,
-  neighbors,
   pixelToHex,
   sameHex,
 } from "./hex";
@@ -24,6 +22,7 @@ import {
   randomPlayerPositions,
   sortTargetsByDistance,
 } from "./fleet";
+import { FleetManager } from "./fleetManager";
 import { SHIP_DAMAGE, SHIP_MAX_HP, SHIP_RANGE, Ship } from "./ship";
 import { UiElements, hideTooltip, renderFleetStatus, renderFormationInfo, showTooltip } from "./ui";
 import { clamp, lerp } from "./utils";
@@ -59,6 +58,7 @@ export class Game {
   private shots: ShotEffect[] = [];
   private popups: DamagePopup[] = [];
   private stars: Point[] = [];
+  private readonly fleetManager = new FleetManager();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -227,8 +227,9 @@ export class Game {
   }
 
   private simulateRound(): void {
-    this.moveFleet(this.playerFleet, this.enemyFleet);
-    this.moveFleet(this.enemyFleet, this.playerFleet);
+    const occupied = this.occupiedKeys();
+    this.fleetManager.moveFleet(this.playerFleet, this.enemyFleet, occupied);
+    this.fleetManager.moveFleet(this.enemyFleet, this.playerFleet, occupied);
     this.fireFleet(this.playerFleet, this.enemyFleet);
     this.fireFleet(this.enemyFleet, this.playerFleet);
 
@@ -238,42 +239,6 @@ export class Game {
       this.phase = "defeat";
     }
     this.updateUi();
-  }
-
-  private moveFleet(fleet: Fleet, enemy: Fleet): void {
-    if (fleet.formation.strategy !== "attack") {
-      return;
-    }
-
-    const occupied = this.occupiedKeys();
-    for (const ship of fleet.aliveShips) {
-      const target = sortTargetsByDistance(ship, enemy.aliveShips)[0];
-      if (!target) {
-        continue;
-      }
-      const candidate = this.bestMove(ship, target, occupied);
-      if (candidate) {
-        occupied.delete(ship.key);
-        ship.moveTo(candidate);
-        occupied.add(ship.key);
-      } else {
-        ship.previousHex = { ...ship.hex };
-      }
-    }
-  }
-
-  private bestMove(ship: Ship, target: Ship, occupied: Set<string>): Hex | null {
-    const direction = ship.side === "player" ? -1 : 1;
-    const currentY = boardY(ship.hex);
-    const forwardCandidates = neighbors(ship.hex).filter((hex) => {
-      const deltaY = boardY(hex) - currentY;
-      return deltaY * direction > 0 || deltaY === 0;
-    });
-    const currentDistance = hexDistance(ship.hex, target.hex);
-    const ranked = forwardCandidates
-      .filter((hex) => !occupied.has(hexKey(hex)))
-      .sort((a, b) => hexDistance(a, target.hex) - hexDistance(b, target.hex));
-    return ranked.find((hex) => hexDistance(hex, target.hex) <= currentDistance) ?? null;
   }
 
   private fireFleet(fleet: Fleet, enemy: Fleet): void {
@@ -388,7 +353,7 @@ export class Game {
 
       this.ctx.save();
       this.ctx.translate(point.x, point.y);
-      this.ctx.rotate(ship.side === "player" ? -Math.PI / 2 : Math.PI / 2);
+      this.ctx.rotate(this.shipRotation(ship));
       this.ctx.shadowBlur = this.hoveredShip?.id === ship.id ? 20 : 12;
       this.ctx.shadowColor = color;
       this.ctx.fillStyle = color;
@@ -494,6 +459,19 @@ export class Game {
       x: lerp(previous.x, target.x, t),
       y: lerp(previous.y, target.y, t),
     };
+  }
+
+  private shipRotation(ship: Ship): number {
+    const target = hexToPixel(ship.hex, this.size, this.origin);
+    const previous = hexToPixel(ship.previousHex, this.size, this.origin);
+    const dx = target.x - previous.x;
+    const dy = target.y - previous.y;
+
+    if (Math.hypot(dx, dy) > 0.1) {
+      return Math.atan2(dy, dx);
+    }
+
+    return ship.side === "player" ? -Math.PI / 2 : Math.PI / 2;
   }
 
   private eventToHex(event: PointerEvent): Hex | null {

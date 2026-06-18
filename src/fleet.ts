@@ -45,7 +45,7 @@ export class Fleet {
 export function randomFormation(): Formation {
   return {
     pattern: choice<FormationPattern>(['1-2-3-4', '3-4-3', '5-5']),
-    spacing: randomInt(1, 3),
+    spacing: randomInt(0, 2),
     strategy: choice<FleetStrategy>(['attack', 'defense']),
   };
 }
