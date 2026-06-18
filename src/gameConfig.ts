@@ -30,9 +30,9 @@ export const gameConfig: GameConfig = {
   },
   steering: {
     separation: 3,
-    cohesion: 2.4,
-    alignment: 0.8,
-    target: 1,
+    cohesion: 5,
+    alignment: 5,
+    target: 20,
   },
   playerFormation: {
     pattern: '5-5',
