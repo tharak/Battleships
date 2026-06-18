@@ -1,7 +1,7 @@
 import { gameConfig } from "./gameConfig";
 import { BOARD_HEXES, Hex, boardY, hexDistance, hexKey, isInBounds, isPlayerZone } from "./hex";
 import { FleetSide, Ship } from "./ship";
-import { choice, randomInt, shuffle } from "./utils";
+import { shuffle } from "./utils";
 
 export type FormationPattern = "1-2-3-4" | "3-4-3" | "5-5";
 export type FleetStrategy = "attack" | "defense";
@@ -43,14 +43,6 @@ export class Fleet {
   get isDestroyed(): boolean {
     return this.aliveShips.length === 0;
   }
-}
-
-export function randomFormation(): Formation {
-  return {
-    pattern: choice<FormationPattern>(FORMATION_PATTERNS),
-    spacing: randomInt(0, 2),
-    strategy: choice<FleetStrategy>(FLEET_STRATEGIES),
-  };
 }
 
 export function createEnemyFleet(formation: Formation = gameConfig.enemyFormation): Fleet {

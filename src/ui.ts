@@ -1,10 +1,8 @@
 import { gameConfig } from "./gameConfig";
-import { Fleet, Formation } from "./fleet";
-import { formatStrategy } from "./utils";
+import { Fleet } from "./fleet";
 
 export type UiElements = {
   phaseStatus: HTMLElement;
-  formationInfo: HTMLElement;
   fleetStatus: HTMLElement;
   tooltip: HTMLElement;
   startButton: HTMLButtonElement;
@@ -15,21 +13,12 @@ export type UiElements = {
 export function getUiElements(): UiElements {
   return {
     phaseStatus: requireElement("phaseStatus"),
-    formationInfo: requireElement("formationInfo"),
     fleetStatus: requireElement("fleetStatus"),
     tooltip: requireElement("tooltip"),
     startButton: requireElement("startButton"),
     restartButton: requireElement("restartButton"),
     debugPanel: requireElement("debugPanel"),
   };
-}
-
-export function renderFormationInfo(container: HTMLElement, formation: Formation): void {
-  container.innerHTML = `
-    <dt>Pattern</dt><dd>${formation.pattern}</dd>
-    <dt>Spacing</dt><dd>${formation.spacing} hex${formation.spacing === 1 ? "" : "es"}</dd>
-    <dt>Strategy</dt><dd>${formatStrategy(formation.strategy)}</dd>
-  `;
 }
 
 export function renderFleetStatus(container: HTMLElement, playerFleet: Fleet, enemyFleet: Fleet): void {

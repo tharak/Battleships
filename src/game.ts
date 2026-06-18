@@ -20,7 +20,7 @@ import {
 import { gameConfig } from "./gameConfig";
 import { FleetManager } from "./fleetManager";
 import { Ship } from "./ship";
-import { UiElements, hideTooltip, renderFleetStatus, renderFormationInfo, showTooltip } from "./ui";
+import { UiElements, hideTooltip, renderFleetStatus, showTooltip } from "./ui";
 import { clamp, lerp } from "./utils";
 
 type GamePhase = "setup" | "battle" | "victory" | "defeat";
@@ -304,7 +304,6 @@ export class Game {
   }
 
   private updateUi(): void {
-    renderFormationInfo(this.ui.formationInfo, this.enemyFleet.formation);
     renderFleetStatus(this.ui.fleetStatus, this.playerFleet, this.enemyFleet);
     this.ui.startButton.disabled = this.phase !== "setup" || this.playerFleet.ships.length !== 10;
     this.ui.debugPanel.classList.toggle("is-locked", this.phase !== "setup");
