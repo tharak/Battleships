@@ -9,7 +9,7 @@ Space Battleships is a standalone TypeScript browser game built with Vite and HT
 - Every ship occupies one hex. HP, range, and damage can be tuned from the setup debug panel.
 - Attack fleets move one hex toward the enemy before firing.
 - Defense fleets hold position and fire at ships in range.
-- Ships target the closest enemy in range. Allied ships on the shot line block fire.
+- Ships target the closest enemy in range, regardless of allied ships in the shot line.
 - Destroy every enemy ship to win.
 
 ## Controls

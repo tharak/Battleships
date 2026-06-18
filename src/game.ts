@@ -5,8 +5,6 @@ import {
   gridPixelBounds,
   hexCorners,
   hexDistance,
-  hexKey,
-  hexLine,
   hexToPixel,
   hexesInRange,
   isPlayerZone,
@@ -265,7 +263,7 @@ export class Game {
 
   private fireFleet(fleet: Fleet, enemy: Fleet, actedShipIds: Set<string>): void {
     for (const ship of fleet.aliveShips) {
-      const target = this.findTarget(ship, enemy.aliveShips, fleet.aliveShips);
+      const target = this.findTarget(ship, enemy.aliveShips);
       if (!target) {
         continue;
       }
@@ -284,19 +282,11 @@ export class Game {
     }
   }
 
-  private findTarget(source: Ship, targets: Ship[], allies: Ship[]): Ship | null {
-    return (
-      sortTargetsByDistance(
-        source,
-        targets.filter((target) => hexDistance(source.hex, target.hex) <= gameConfig.ship.range),
-      ).find((target) => !this.allyBlocksShot(source, target, allies)) ?? null
-    );
-  }
-
-  private allyBlocksShot(source: Ship, target: Ship, allies: Ship[]): boolean {
-    const line = hexLine(source.hex, target.hex).slice(1, -1);
-    const blockers = new Set(allies.filter((ally) => ally.id !== source.id && ally.isAlive).map((ally) => ally.key));
-    return line.some((hex) => blockers.has(hexKey(hex)));
+  private findTarget(source: Ship, targets: Ship[]): Ship | null {
+    return sortTargetsByDistance(
+      source,
+      targets.filter((target) => hexDistance(source.hex, target.hex) <= gameConfig.ship.range),
+    )[0] ?? null;
   }
 
   private occupiedKeys(): Set<string> {
