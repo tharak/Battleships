@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#050812" />
+    <title>Space Battleships</title>
+  </head>
+  <body>
+    <main id="app" class="shell">
+      <section class="stage" aria-label="Space Battleships tactical map">
+        <canvas id="gameCanvas"></canvas>
+        <div id="tooltip" class="tooltip" role="status" aria-live="polite"></div>
+      </section>
+      <aside class="panel" aria-label="Game controls">
+        <div>
+          <p class="eyebrow">Space Battleships</p>
+          <h1>Hex Fleet Command</h1>
+        </div>
+
+        <div class="status" id="phaseStatus">Setup: place 10 ships in the lower half.</div>
+
+        <section class="info-block">
+          <h2>Enemy Formation</h2>
+          <dl id="formationInfo"></dl>
+        </section>
+
+        <section class="info-block">
+          <h2>Fleet Status</h2>
+          <div id="fleetStatus" class="fleet-status"></div>
+        </section>
+
+        <div class="controls">
+          <button id="placeShipsButton" type="button">Place Ships</button>
+          <button id="randomizeButton" type="button">Randomize Player Placement</button>
+          <button id="startButton" type="button" class="primary">Start Battle</button>
+          <button id="restartButton" type="button">Restart</button>
+        </div>
+
+        <div class="hint">
+          Click empty lower-half hexes to place ships. Click one of your placed ships to remove it during setup.
+        </div>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
