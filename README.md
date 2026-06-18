@@ -1,6 +1,6 @@
 # Space Battleships
 
-Space Battleships is a standalone TypeScript browser game built with Vite and HTML5 Canvas. It is a sci-fi Battleships variant played on a 15 x 30 flat-top hex grid.
+Space Battleships is a standalone TypeScript browser game built with Vite and HTML5 Canvas. It is a sci-fi Battleships variant played on a side-16 flat-top hex map.
 
 ## Gameplay
 

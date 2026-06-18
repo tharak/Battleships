@@ -1,8 +1,8 @@
 import {
-  GRID_HEIGHT,
-  GRID_WIDTH,
+  BOARD_HEXES,
   Hex,
   Point,
+  boardY,
   gridPixelBounds,
   hexCorners,
   hexDistance,
@@ -11,6 +11,7 @@ import {
   hexToPixel,
   hexesInRange,
   isInBounds,
+  isPlayerZone,
   neighbors,
   pixelToHex,
   sameHex,
@@ -108,13 +109,12 @@ export class Game {
 
     const usableWidth = Math.max(320, rect.width - 32);
     const usableHeight = Math.max(420, rect.height - 32);
-    const baseWidth = 1.5 * (GRID_WIDTH - 1) + 2;
-    const baseHeight = Math.sqrt(3) * (GRID_HEIGHT + (GRID_WIDTH - 1) / 2) + 2;
-    this.size = Math.max(8, Math.min(usableWidth / baseWidth, usableHeight / baseHeight));
+    const unitBounds = gridPixelBounds(1, { x: 0, y: 0 });
+    this.size = Math.max(8, Math.min(usableWidth / unitBounds.width, usableHeight / unitBounds.height));
     const bounds = gridPixelBounds(this.size, { x: 0, y: 0 });
     this.origin = {
-      x: (rect.width - bounds.width) / 2 + this.size,
-      y: (rect.height - bounds.height) / 2 + this.size,
+      x: (rect.width - bounds.width) / 2 - bounds.minX,
+      y: (rect.height - bounds.height) / 2 - bounds.minY,
     };
     this.stars = Array.from({ length: Math.floor((rect.width * rect.height) / 11000) }, () => ({
       x: Math.random() * rect.width,
@@ -264,7 +264,11 @@ export class Game {
 
   private bestMove(ship: Ship, target: Ship, occupied: Set<string>): Hex | null {
     const direction = ship.side === "player" ? -1 : 1;
-    const forwardCandidates = neighbors(ship.hex).filter((hex) => (hex.r - ship.hex.r) * direction > 0 || hex.r === ship.hex.r);
+    const currentY = boardY(ship.hex);
+    const forwardCandidates = neighbors(ship.hex).filter((hex) => {
+      const deltaY = boardY(hex) - currentY;
+      return deltaY * direction > 0 || deltaY === 0;
+    });
     const currentDistance = hexDistance(ship.hex, target.hex);
     const ranked = forwardCandidates
       .filter((hex) => !occupied.has(hexKey(hex)))
@@ -355,11 +359,8 @@ export class Game {
   }
 
   private renderGrid(): void {
-    for (let r = 0; r < GRID_HEIGHT; r += 1) {
-      for (let q = 0; q < GRID_WIDTH; q += 1) {
-        const hex = { q, r };
-        this.drawHex(hex, r >= Math.floor(GRID_HEIGHT / 2) ? "rgba(96, 255, 214, 0.08)" : "rgba(255, 79, 119, 0.055)");
-      }
+    for (const hex of BOARD_HEXES) {
+      this.drawHex(hex, isPlayerZone(hex) ? "rgba(96, 255, 214, 0.08)" : "rgba(255, 79, 119, 0.055)");
     }
   }
 

@@ -8,8 +8,8 @@ export type Point = {
   y: number;
 };
 
-export const GRID_WIDTH = 15;
-export const GRID_HEIGHT = 20;
+export const MAP_SIDE = 13;
+export const MAP_RADIUS = MAP_SIDE - 1;
 
 const SQRT3 = Math.sqrt(3);
 const DIRECTIONS: Hex[] = [
@@ -21,8 +21,10 @@ const DIRECTIONS: Hex[] = [
   { q: 0, r: 1 },
 ];
 
+export const BOARD_HEXES: Hex[] = createBoardHexes();
+
 export function hexKey(hex: Hex): string {
-  return String(hex.q) + "," + String(hex.r);
+  return String(hex.q) + ',' + String(hex.r);
 }
 
 export function sameHex(a: Hex, b: Hex): boolean {
@@ -34,13 +36,22 @@ export function addHex(a: Hex, b: Hex): Hex {
 }
 
 export function isInBounds(hex: Hex): boolean {
-  return hex.q >= 0 && hex.q < GRID_WIDTH && hex.r >= 0 && hex.r < GRID_HEIGHT;
+  const s = -hex.q - hex.r;
+  return Math.max(Math.abs(hex.q), Math.abs(hex.r), Math.abs(s)) <= MAP_RADIUS;
+}
+
+export function boardY(hex: Hex): number {
+  return hex.r + hex.q / 2;
+}
+
+export function isPlayerZone(hex: Hex): boolean {
+  return boardY(hex) >= 0;
 }
 
 export function hexToPixel(hex: Hex, size: number, origin: Point): Point {
   return {
     x: origin.x + size * 1.5 * hex.q,
-    y: origin.y + size * SQRT3 * (hex.r + hex.q / 2),
+    y: origin.y + size * SQRT3 * boardY(hex),
   };
 }
 
@@ -112,14 +123,18 @@ export function hexLine(a: Hex, b: Hex): Hex[] {
   return line;
 }
 
-export function gridPixelBounds(size: number, origin: Point): { width: number; height: number } {
-  const corners = [
-    ...hexCorners({ q: 0, r: 0 }, size, origin),
-    ...hexCorners({ q: GRID_WIDTH - 1, r: GRID_HEIGHT - 1 }, size, origin),
-  ];
+export function gridPixelBounds(size: number, origin: Point): { minX: number; minY: number; width: number; height: number } {
+  const corners = BOARD_HEXES.flatMap((hex) => hexCorners(hex, size, origin));
+  const minX = Math.min(...corners.map((point) => point.x));
+  const maxX = Math.max(...corners.map((point) => point.x));
+  const minY = Math.min(...corners.map((point) => point.y));
+  const maxY = Math.max(...corners.map((point) => point.y));
+
   return {
-    width: Math.max(...corners.map((point) => point.x)) - Math.min(...corners.map((point) => point.x)),
-    height: Math.max(...corners.map((point) => point.y)) - Math.min(...corners.map((point) => point.y)),
+    minX,
+    minY,
+    width: maxX - minX,
+    height: maxY - minY,
   };
 }
 
@@ -128,6 +143,18 @@ type Cube = {
   y: number;
   z: number;
 };
+
+function createBoardHexes(): Hex[] {
+  const hexes: Hex[] = [];
+  for (let q = -MAP_RADIUS; q <= MAP_RADIUS; q += 1) {
+    const minR = Math.max(-MAP_RADIUS, -q - MAP_RADIUS);
+    const maxR = Math.min(MAP_RADIUS, -q + MAP_RADIUS);
+    for (let r = minR; r <= maxR; r += 1) {
+      hexes.push({ q, r });
+    }
+  }
+  return hexes;
+}
 
 function axialToCube(hex: Hex): Cube {
   const x = hex.q;
