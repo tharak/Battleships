@@ -246,6 +246,15 @@ scenario menu is the §9 protocol. Play each test, use the "copy result line" bu
 fill in:
 
 - [ ] Result lines & answers to questions 1–6 (§9)
+
+  ```text
+  2026-07-08  Spindle vs Wide Line | ctrl=Blue | winner=Blue (spindle) | turn=6 | strength 12-16 | losses 4-5
+  ```
+  First human game of the decisive matchup: **the spindle wins in human hands** (AI
+  baseline loses it 26/74). Note the shape of the win — the line had MORE surviving
+  strength (16 v 12) but broke on losses first: a morale/cohesion kill, not an attrition
+  kill. Early evidence that the wheel is **emergent-with-skill**. Needs 2–3 more games
+  (including one loss analysis) before calling question 1 closed.
 - [ ] Verdict on **open question 1** (emergent wheel vs. need for modifiers)
 - [ ] Recommended number tweaks for battle-rules v0.2
 - [ ] Verdict on **squadron count** feel (open question 3 — needs a v0.2 page option
