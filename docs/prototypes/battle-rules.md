@@ -234,13 +234,19 @@ Average battle length: 6–12 turns, always ending by break threshold, never by 
 units home in), no deliberate flanking movement, no withdrawal judgment, no flagship
 hunting. Everything the sim can't do is precisely what the table playtest is for.
 
-### 10.b Table playtests — TO DO (the human half of issue #1)
+### 10.b Human playtests — TO DO (the human half of issue #1)
 
 The sim can't test what only a human will find: deliberate flank hooks, feints, refusing
-a flank, flagship sniping, when to withdraw. Play protocol games 1–8, then fill in:
+a flank, flagship sniping, when to withdraw. These rules are playable in the browser —
+**https://tharak.github.io/Battleships/prototypes/battle.html**
+(source: `docs/prototypes/battle.html`, a single self-contained page implementing this
+exact ruleset; its AI is the same dumb advance-and-shoot logic as the Python sim, and a
+headless port-validation test confirms the page reproduces the sim's win rates). The
+scenario menu is the §9 protocol. Play each test, use the "copy result line" button, and
+fill in:
 
-- [ ] Game log & answers to questions 1–6 (§9)
+- [ ] Result lines & answers to questions 1–6 (§9)
 - [ ] Verdict on **open question 1** (emergent wheel vs. need for modifiers)
 - [ ] Recommended number tweaks for battle-rules v0.2
-- [ ] Verdict on **squadron count** feel (open question 3: 8 vs 20 — try a 5-a-side and
-      a 12-a-side variant game)
+- [ ] Verdict on **squadron count** feel (open question 3 — needs a v0.2 page option
+      for 5- and 12-squadron fleets)

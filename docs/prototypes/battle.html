@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Successor Stars — Battle Rules Prototype v0.1</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131826; --panel2:#1a2133; --line:#2a3350;
+    --text:#d7deef; --dim:#8892ab; --blue:#4a9eff; --red:#ff5a5a;
+    --gold:#ffd166; --green:#4cd97b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:15px;margin:16px 0 6px;color:var(--gold)}
+  a{color:var(--blue)}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+         border-radius:6px;padding:6px 12px;cursor:pointer;font:inherit}
+  button:hover:not(:disabled){border-color:var(--blue)}
+  button:disabled{opacity:.35;cursor:default}
+  button.primary{background:#1d3a63;border-color:var(--blue)}
+  button.danger{border-color:var(--red)}
+  .wrap{max-width:1280px;margin:0 auto;padding:14px}
+  /* menu */
+  #menu .scenario{display:block;width:100%;text-align:left;margin:6px 0;padding:10px 14px}
+  #menu .scenario b{color:var(--gold)}
+  #menu .scenario span{color:var(--dim);display:block;font-size:13px}
+  .opts{display:flex;gap:18px;flex-wrap:wrap;background:var(--panel);
+        border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:10px 0}
+  .opts label{cursor:pointer}
+  /* battle layout */
+  #battle{display:none}
+  .cols{display:flex;gap:12px;align-items:flex-start}
+  #boardbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px}
+  canvas{display:block;border-radius:4px}
+  #side{width:340px;min-width:280px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+         padding:10px 12px;margin-bottom:10px}
+  #status{font-size:15px}
+  #status .who{font-weight:700}
+  #controls{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  #log{height:300px;overflow-y:auto;font-size:12.5px;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #log .t{color:var(--gold)} #log .b{color:var(--blue)} #log .r{color:var(--red)}
+  #log .bad{color:#ff9a7a} #log .good{color:var(--green)} #log div{margin:1px 0}
+  .kbd{color:var(--dim);font-size:12px;margin-top:6px}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+  details{margin-top:8px} summary{cursor:pointer;color:var(--gold)}
+  table{border-collapse:collapse;font-size:12.5px;margin:6px 0}
+  td,th{border:1px solid var(--line);padding:3px 8px;text-align:left}
+  #overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center}
+  #overlay .card{background:var(--panel);border:1px solid var(--gold);border-radius:10px;
+                 padding:24px 30px;max-width:520px;text-align:center}
+  #overlay h1{color:var(--gold)}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:4px;
+       padding:0 6px;color:var(--dim);font-size:12px;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================= MENU ================= -->
+  <div id="menu">
+    <h1>Successor Stars — battle rules prototype <span class="tag">v0.1</span></h1>
+    <p style="color:var(--dim);max-width:70ch">Digital playtest of the paper rules
+    (<a href="https://github.com/tharak/Battleships/blob/main/docs/prototypes/battle-rules.md">docs/prototypes/battle-rules.md</a>,
+    GDD §5.4–§5.5). Zero formation modifiers — formations are only positions and facings.
+    The AI is the same dumb advance-and-shoot logic as the Monte-Carlo baseline; the point
+    of playing is to test what <em>human</em> maneuver adds. Pick a test:</p>
+    <div class="opts" id="sidepick">
+      <b>Control:</b>
+      <label><input type="radio" name="ctrl" value="0" checked> Play Blue (left)</label>
+      <label><input type="radio" name="ctrl" value="1"> Play Red (right)</label>
+      <label><input type="radio" name="ctrl" value="2"> Hotseat (both)</label>
+      <label><input type="radio" name="ctrl" value="3"> Spectate (AI vs AI)</label>
+    </div>
+    <div id="scenlist"></div>
+  </div>
+
+  <!-- ================= BATTLE ================= -->
+  <div id="battle">
+    <div class="cols">
+      <div id="boardbox"><canvas id="cv" width="920" height="620"></canvas></div>
+      <div id="side">
+        <div class="panel" id="status"></div>
+        <div class="panel">
+          <div id="actinfo" style="min-height:40px"></div>
+          <div id="controls">
+            <button id="btnL">&#10226; Left</button>
+            <button id="btnF">&#8593; Forward</button>
+            <button id="btnR">&#10227; Right</button>
+            <button id="btnFire" class="danger">Fire</button>
+            <button id="btnEnd" class="primary">End activation</button>
+          </div>
+          <div class="kbd"><kbd>Q</kbd>/<kbd>E</kbd> turn · <kbd>W</kbd> forward ·
+            <kbd>F</kbd> fire mode · <kbd>Space</kbd> end · click a unit to select / a
+            highlighted enemy to shoot</div>
+        </div>
+        <div class="panel"><div id="log"></div></div>
+        <div class="panel" style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="btnMenu">Menu</button>
+          <button id="btnRestart">Restart</button>
+          <button id="btnStep" style="display:none">Step</button>
+          <button id="btnAuto" style="display:none">Auto ▶</button>
+        </div>
+        <details class="panel"><summary>Rules crib sheet</summary>
+          <table><tr><th>Fire into target's…</th><th>Hit on</th><th>Low supply</th></tr>
+            <tr><td>Front arc</td><td>5+</td><td>6</td></tr>
+            <tr><td>Flank arc</td><td>4+</td><td>5+</td></tr>
+            <tr><td>Rear arc</td><td>3+</td><td>4+</td></tr></table>
+          <div style="font-size:12.5px;color:var(--dim)">
+          Dice = Strength (Shaken: half, round up) · range 3 · fire only into your own
+          front arc · LOS blocked by any squadron.<br>
+          Move: 3 MP; 1/hex forward, 1/60° turn. In command (≤4 of flagship): move
+          <b>and</b> fire; outside: move <b>or</b> fire.<br>
+          Morale (d6 ≥ 4) on: taking losses · friend routs/dies within 2 · flagship lost.
+          Mods: +1 steady friend adjacent, +1 in command, −1 hit from flank/rear, −1 low
+          supply, −1 flagship lost. Fail: Steady→Shaken→Routed.<br>
+          Fleet breaks at 5 of 9 squadrons destroyed/fled. Draw at turn 15.</div>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="overlay"><div class="card">
+  <h1 id="ovTitle"></h1><p id="ovBody"></p>
+  <p id="ovResult" style="font-family:ui-monospace,monospace;font-size:12.5px;color:var(--dim)"></p>
+  <button id="ovCopy">Copy result line</button>
+  <button id="ovAgain" class="primary">Play again</button>
+  <button id="ovMenu">Menu</button>
+</div></div>
+
+<script>
+"use strict";
+/* ============ constants (mirror prototypes/battle_sim.py exactly) ============ */
+const COLS=24, ROWS=18, RANGE=3, CMD_R=4, MP_MAX=3, BREAK_AT=5, MAX_TURNS=15;
+const S32=Math.sqrt(3)/2;
+const CUBE_DIRS=[[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+const DIR_ANGLE=[0,-60,-120,180,120,60];
+const STEADY=0, SHAKEN=1, ROUTED=2;
+const STATE_NAME=["Steady","Shaken","ROUTED"];
+const HOLD_FORMS=new Set(["sphere"]);
+
+/* ============ hex math ============ */
+const key=(c,r)=>c+","+r;
+function toAxial(c,r){return [c-((r-(r&1))>>1), r];}
+function fromAxial(q,r){return [q+((r-(r&1))>>1), r];}
+function hexDist(a,b){
+  const [aq,ar]=toAxial(a[0],a[1]), [bq,br]=toAxial(b[0],b[1]);
+  const dq=aq-bq, dr=ar-br;
+  return (Math.abs(dq)+Math.abs(dr)+Math.abs(dq+dr))/2;
+}
+function neighbor(p,d){
+  const [q,r]=toAxial(p[0],p[1]);
+  return fromAxial(q+CUBE_DIRS[d][0], r+CUBE_DIRS[d][1]);
+}
+const toCart=p=>[p[0]+0.5*(p[1]&1), p[1]*S32];
+function angleBetween(a,b){
+  const [ax,ay]=toCart(a), [bx,by]=toCart(b);
+  return Math.atan2(by-ay,bx-ax)*180/Math.PI;
+}
+function relAngle(facing,frm,to){
+  let a=angleBetween(frm,to)-DIR_ANGLE[facing];
+  a=((a+180)%360+360)%360-180;
+  return Math.abs(a);
+}
+function incomingArc(tgt,firerPos){
+  const a=relAngle(tgt.facing,tgt.pos,firerPos);
+  if(a<90-1e-9) return "front";
+  if(a<150-1e-9) return "flank";
+  return "rear";
+}
+const inFireArc=(u,tp)=>relAngle(u.facing,u.pos,tp)<=90+1e-9;
+function losClear(a,b,occ){
+  const n=hexDist(a,b);
+  if(n<=1) return true;
+  const [aq,ar]=toAxial(a[0],a[1]), [bq,br]=toAxial(b[0],b[1]);
+  const ka=key(a[0],a[1]), kb=key(b[0],b[1]);
+  for(const eps of [1e-6,-1e-6]){
+    let clear=true;
+    for(let i=1;i<n;i++){
+      const t=i/n;
+      let q=aq+(bq-aq)*t+eps, r=ar+(br-ar)*t+eps/2, s=-q-r;
+      let rq=Math.round(q), rr=Math.round(r), rs=Math.round(s);
+      const dq=Math.abs(rq-q), dr=Math.abs(rr-r), ds=Math.abs(rs-s);
+      if(dq>dr&&dq>ds) rq=-rr-rs; else if(dr>ds) rr=-rq-rs;
+      const h=fromAxial(rq,rr), kh=key(h[0],h[1]);
+      if(kh!==ka&&kh!==kb&&occ.has(kh)){clear=false;break;}
+    }
+    if(clear) return true;
+  }
+  return false;
+}
+
+/* ============ formations ============ */
+function formationLayout(name){
+  if(name==="line")    return {u:range(-4,4).map(l=>[0,l,0]), flag:4};
+  if(name==="spindle") return {u:[[2,0,0],[1,-1,0],[1,1,0],[0,-1,0],[0,0,0],[0,1,0],
+                                  [-1,-1,0],[-1,1,0],[-2,0,0]], flag:4};
+  if(name==="crescent")return {u:range(-4,4).map(l=>[Math.abs(l)>=3?2:(Math.abs(l)===2?1:0),
+                                  l, l<=-2?1:(l>=2?-1:0)]), flag:4};
+  if(name==="echelon") return {u:range(-4,4).map(l=>[-l,l,0]), flag:4};
+  if(name==="sphere")  return {u:[[0,0,0],[1,0,0],[1,-1,0],[0,-1,0],[-1,-1,0],
+                                  [-1,0,0],[-1,1,0],[0,1,0],[1,1,0]], flag:0};
+  if(name==="column")  return {u:range(-4,4).map(f=>[f,0,0]), flag:4};
+}
+const range=(a,b)=>{const o=[];for(let i=a;i<=b;i++)o.push(i);return o;};
+
+function deploy(name,side){
+  const {u,flag}=formationLayout(name);
+  const straight=side===0?0:3, toPos=side===0?5:4, toNeg=side===0?1:2;
+  const units=u.map((([fwd,lat,df],i)=>({
+    side, pos:[side===0?5+fwd:18-fwd, 9+lat],
+    facing: df===0?straight:(df>0?toPos:toNeg),
+    strength:4, state:STEADY, flag:i===flag, hitSinceAct:false,
+    activated:false, alive:true, exited:false,
+    id:(side===0?"B":"R")+(i+1)
+  })));
+  if(name==="sphere"){
+    const c=units[0].pos;
+    for(const un of units.slice(1)){
+      const ang=angleBetween(c,un.pos);
+      un.facing=argmin(range(0,5),d=>Math.abs(((DIR_ANGLE[d]-ang+180)%360+360)%360-180));
+    }
+  }
+  return units;
+}
+const argmin=(arr,f)=>arr.reduce((b,x)=>f(x)<f(b)?x:b);
+
+/* ============ scenarios ============ */
+const SCENARIOS=[
+ {t:"Spindle vs Wide Line", a:"spindle", b:"line",
+  n:"THE key test. The dumb AI loses this 26/74 — it can't exploit a breakthrough. Can you pierce the line and win with maneuver?"},
+ {t:"Wide Line vs Crescent", a:"line", b:"crescent",
+  n:"The wheel predicts the line's massed arcs win; the sim says crescent 64/36. Settle it."},
+ {t:"Crescent vs Spindle", a:"crescent", b:"spindle",
+  n:"Wrap the wedge, rake its flanks. Sim: crescent 55/45 with dumb hands."},
+ {t:"Echelon vs Spindle", a:"echelon", b:"spindle",
+  n:"Refuse a flank, deflect the punch into a flank trade. Sim: echelon 64/36."},
+ {t:"Sphere vs Crescent", a:"sphere", b:"crescent",
+  n:"Survival formation in the wrong context on purpose. Score = turns survived, not wins."},
+ {t:"Wide Line vs Column (sanity)", a:"line", b:"column",
+  n:"Travel order should be slaughtered. If Column ever wins, something is broken."},
+ {t:"Low-supply mirror", a:"line", b:"line", lowB:true,
+  n:"Red fights on empty magazines (worse to-hit, −1 morale). Sim says 97/3 — auto-loss. Confirm, then we tune v0.2."},
+ {t:"Flagship hunt (mirror)", a:"line", b:"line",
+  n:"Mirror match. Try decapitation: kill the enemy flagship — fleet-wide morale check, permanent −1, command radius gone."},
+];
+
+/* ============ game state ============ */
+let G=null;           // battle state
+let scen=null, ctrlMode=0;
+let act=null;         // human activation {u, mp, moved, fired, fireMode}
+let autoTimer=null;
+
+function newBattle(){
+  G={
+    turn:0, lastActed:1, over:false, winner:null,
+    fleets:[
+      {name:scen.a, units:deploy(scen.a,0), low:!!scen.lowA, flagLost:false},
+      {name:scen.b, units:deploy(scen.b,1), low:!!scen.lowB, flagLost:false},
+    ],
+  };
+  act=null;
+  logEl.innerHTML="";
+  log(`Scenario: ${scen.t}`,"t");
+  log(`Blue: ${scen.a}${scen.lowA?" (LOW SUPPLY)":""} — Red: ${scen.b}${scen.lowB?" (LOW SUPPLY)":""}`);
+  newTurn();
+  proceed();
+}
+function units(side){return G.fleets[side].units;}
+function alive(side){return units(side).filter(u=>u.alive);}
+function losses(side){return units(side).filter(u=>!u.alive).length;}
+function occupied(){
+  const s=new Set();
+  for(const f of G.fleets) for(const u of f.units) if(u.alive) s.add(key(u.pos[0],u.pos[1]));
+  return s;
+}
+function flagship(side){return units(side).find(u=>u.flag&&u.alive)||null;}
+function inCommand(u){
+  const fl=flagship(u.side);
+  return fl!==null && hexDist(u.pos,fl.pos)<=CMD_R;
+}
+const enemies=side=>alive(1-side);
+const friends=u=>alive(u.side).filter(v=>v!==u);
+const d6=()=>1+Math.floor(Math.random()*6);
+const sideName=s=>s===0?"Blue":"Red";
+const sideCls=s=>s===0?"b":"r";
+
+/* ============ rules engine (port of battle_sim.py) ============ */
+function moraleCheck(u,fromFR){
+  if(!u.alive||u.state===ROUTED) return;
+  let mod=0, why=[];
+  if(friends(u).some(v=>v.state===STEADY&&hexDist(u.pos,v.pos)===1)){mod++;why.push("+1 support");}
+  if(inCommand(u)){mod++;why.push("+1 command");}
+  if(fromFR){mod--;why.push("−1 flanked");}
+  if(G.fleets[u.side].low){mod--;why.push("−1 supply");}
+  if(G.fleets[u.side].flagLost){mod--;why.push("−1 flagship");}
+  const roll=d6(), tot=roll+mod, pass=tot>=4;
+  log(`  ${u.id} morale: ${roll}${why.length?" "+why.join(" "):""} = ${tot} → ${pass?"holds":"FAILS"}`,
+      pass?null:"bad");
+  if(pass) return;
+  if(u.state===STEADY){u.state=SHAKEN;}
+  else{
+    u.state=ROUTED; u.facing=u.side===0?3:0;
+    log(`  ${u.id} ROUTS!`,"bad");
+    contagion(u);
+  }
+}
+function contagion(src){
+  for(const v of friends(src).slice())
+    if(v.alive&&v.state!==ROUTED&&hexDist(v.pos,src.pos)<=2) moraleCheck(v,false);
+}
+function destroy(u){
+  u.alive=false;
+  log(`  ${u.id} is DESTROYED`,"bad");
+  const wasFlag=u.flag;
+  contagion(u);
+  if(wasFlag){
+    G.fleets[u.side].flagLost=true;
+    log(`  ${sideName(u.side)} FLAGSHIP LOST — fleet-wide morale check, command net down`,"bad");
+    for(const v of alive(u.side)) moraleCheck(v,false);
+  }
+}
+function legalTargets(u){
+  const occ=occupied();
+  return enemies(u.side).filter(e=>
+    hexDist(u.pos,e.pos)<=RANGE && inFireArc(u,e.pos) && losClear(u.pos,e.pos,occ));
+}
+function pickTarget(u){ // AI: nearest, tiebreak lowest strength
+  const ts=legalTargets(u);
+  if(!ts.length) return null;
+  return ts.reduce((b,e)=>{
+    const kb=[hexDist(u.pos,b.pos),b.strength], ke=[hexDist(u.pos,e.pos),e.strength];
+    return (ke[0]<kb[0]||(ke[0]===kb[0]&&ke[1]<kb[1]))?e:b;
+  });
+}
+function fire(u,tgt){
+  const dice=u.state===STEADY?u.strength:Math.ceil(u.strength/2);
+  const arc=incomingArc(tgt,u.pos);
+  let need={front:5,flank:4,rear:3}[arc];
+  if(G.fleets[u.side].low) need++;
+  let hits=0; const rolls=[];
+  for(let i=0;i<dice;i++){const r=d6();rolls.push(r);if(r>=need)hits++;}
+  log(`${u.id} fires at ${tgt.id} (${arc} arc, ${need}+): [${rolls.join(" ")}] → ${hits} hit${hits===1?"":"s"}`,
+      hits?sideCls(u.side):null);
+  if(!hits) return;
+  tgt.strength=Math.max(0,tgt.strength-hits);
+  tgt.hitSinceAct=true;
+  if(tgt.strength===0) destroy(tgt);
+  else moraleCheck(tgt,arc!=="front");
+}
+function turnToward(u,d){
+  const diff=((d-u.facing)%6+6)%6;
+  u.facing=(u.facing+(diff<=3?1:5))%6;
+}
+function desiredDir(u,goal){
+  const ang=angleBetween(u.pos,goal);
+  return argmin(range(0,5),d=>Math.abs(((DIR_ANGLE[d]-ang+180)%360+360)%360-180));
+}
+function nearestEnemy(u){
+  const en=enemies(u.side);
+  return en.length?argmin(en,e=>hexDist(u.pos,e.pos)):null;
+}
+function aiStep(u){ // one MP toward nearest enemy; false if unusable
+  const ne=nearestEnemy(u);
+  if(!ne) return false;
+  const d=desiredDir(u,ne.pos);
+  if(u.facing!==d){turnToward(u,d);return true;}
+  const nx=neighbor(u.pos,d);
+  if(nx[0]>=0&&nx[0]<COLS&&nx[1]>=0&&nx[1]<ROWS
+     &&!occupied().has(key(nx[0],nx[1]))
+     &&hexDist(nx,ne.pos)<hexDist(u.pos,ne.pos)){u.pos=nx;return true;}
+  return false;
+}
+function flee(u){
+  const d=u.side===0?3:0;
+  for(let i=0;i<MP_MAX;i++){
+    if(u.facing!==d){turnToward(u,d);continue;}
+    const nx=neighbor(u.pos,d);
+    if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS){
+      u.alive=false;u.exited=true;
+      log(`  ${u.id} flees off the map`,"bad");return;
+    }
+    if(!occupied().has(key(nx[0],nx[1]))) u.pos=nx;
+  }
+}
+function routedActivation(u){ // shared by AI and human routed units
+  if(!u.hitSinceAct){
+    const bonus=inCommand(u)?1:0, r=d6();
+    if(r+bonus>=4){
+      u.state=SHAKEN;u.hitSinceAct=false;
+      log(`${u.id} RALLIES (${r}${bonus?"+1":""}) — now Shaken`,"good");
+      return;
+    }
+    log(`${u.id} fails to rally (${r}${bonus?"+1":""}) and keeps running`);
+  }
+  u.hitSinceAct=false;
+  flee(u);
+}
+function aiActivate(u){
+  if(!u.alive) return;
+  if(u.state===ROUTED){routedActivation(u);return;}
+  u.hitSinceAct=false;
+  const cmd=inCommand(u), hold=HOLD_FORMS.has(G.fleets[u.side].name);
+  let tgt=pickTarget(u);
+  if(u.state===SHAKEN){
+    if(!tgt&&!hold){
+      const ne=nearestEnemy(u);
+      if(ne){const d=desiredDir(u,ne.pos);if(u.facing!==d)turnToward(u,d);}
+      tgt=cmd?pickTarget(u):null;
+    }
+    if(tgt) fire(u,tgt);
+    return;
+  }
+  if(tgt){fire(u,tgt);return;}
+  if(hold){
+    const ne=nearestEnemy(u);
+    if(ne&&hexDist(u.pos,ne.pos)<=RANGE+1){
+      const d=desiredDir(u,ne.pos);if(u.facing!==d)turnToward(u,d);
+    }
+    if(cmd){tgt=pickTarget(u);if(tgt)fire(u,tgt);}
+    return;
+  }
+  for(let i=0;i<MP_MAX;i++) if(!aiStep(u)) break;
+  if(cmd){tgt=pickTarget(u);if(tgt)fire(u,tgt);}
+}
+
+/* ============ turn engine ============ */
+function newTurn(){
+  G.turn++;
+  for(const f of G.fleets) for(const u of f.units) u.activated=false;
+  G.lastActed=G.turn%2; // side (turn+1)%2 acts first, mirroring the sim
+  log(`— Turn ${G.turn} —`,"t");
+}
+function unactivated(side){return alive(side).filter(u=>!u.activated);}
+function checkEnd(){
+  if(G.over) return true;
+  for(const s of [0,1]) if(losses(s)>=BREAK_AT) return gameOver(1-s,"break");
+  if(unactivated(0).length===0&&unactivated(1).length===0){
+    if(G.turn>=MAX_TURNS){
+      const s0=alive(0).reduce((a,u)=>a+u.strength,0), s1=alive(1).reduce((a,u)=>a+u.strength,0);
+      return gameOver(s0===s1?null:(s0>s1?0:1),"time");
+    }
+    newTurn();
+  }
+  return false;
+}
+function nextSide(){
+  const other=1-G.lastActed;
+  if(unactivated(other).length) return other;
+  if(unactivated(G.lastActed).length) return G.lastActed;
+  return null;
+}
+const humanControls=side=>ctrlMode===2?true:(ctrlMode===3?false:side===ctrlMode);
+function proceed(){
+  if(G.over) return;
+  if(checkEnd()) return;
+  const side=nextSide();
+  if(side===null){proceed();return;}
+  if(humanControls(side)){
+    act={u:null,mp:0,moved:false,fired:false,fireMode:false,side};
+    draw();updatePanels();
+    return;
+  }
+  // AI slot
+  const go=()=>{
+    const u=unactivated(side)[0];
+    if(!u){proceed();return;}
+    u.activated=true;G.lastActed=side;
+    aiActivate(u);
+    draw();updatePanels();
+    if(ctrlMode===3){checkEnd();draw();updatePanels();} // one activation per step/tick
+    else proceed();
+  };
+  if(ctrlMode===3){go();}
+  else setTimeout(go,250);
+}
+
+/* human actions */
+function selectUnit(u){
+  if(!act||act.u||u.side!==act.side||u.activated||!u.alive) return;
+  u.activated=true;G.lastActed=u.side;
+  if(u.state===ROUTED){
+    routedActivation(u);
+    act=null;draw();updatePanels();
+    proceed();return;
+  }
+  u.hitSinceAct=false;
+  act.u=u;act.mp=MP_MAX;act.moved=false;act.fired=false;act.fireMode=false;
+  act.cmd=inCommand(u);
+  draw();updatePanels();
+}
+const canMove=()=>act&&act.u&&act.mp>0&&(act.cmd||!act.fired);
+const canFire=()=>act&&act.u&&!act.fired&&(act.cmd||!act.moved)
+                  &&legalTargets(act.u).length>0;
+function doTurn(dir){ // dir: +1 left(ccw in dir index terms)… use explicit
+  if(!canMove())return;
+  const u=act.u;
+  u.facing=(u.facing+dir+6)%6;
+  act.mp--;act.moved=true;act.fireMode=false;
+  draw();updatePanels();
+}
+function doForward(){
+  if(!canMove())return;
+  const u=act.u, nx=neighbor(u.pos,u.facing);
+  if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS)return;
+  if(occupied().has(key(nx[0],nx[1])))return;
+  if(u.state===SHAKEN){ // may not end closer to nearest enemy
+    const ne=nearestEnemy(u);
+    if(ne&&hexDist(nx,ne.pos)<hexDist(u.pos,ne.pos)){
+      log(`${u.id} is Shaken — it refuses to advance`,"bad");return;
+    }
+  }
+  u.pos=nx;act.mp--;act.moved=true;act.fireMode=false;
+  draw();updatePanels();
+}
+function doFireAt(tgt){
+  if(!canFire())return;
+  if(!legalTargets(act.u).includes(tgt))return;
+  fire(act.u,tgt);
+  act.fired=true;act.fireMode=false;
+  draw();updatePanels();
+  if(checkEnd())return;
+  if(!act.cmd) endActivation();       // out of command: fire was the whole activation
+}
+function endActivation(){
+  if(!act||!act.u)return;
+  act=null;draw();updatePanels();
+  proceed();
+}
+function gameOver(winner,how){
+  G.over=true;G.winner=winner;
+  const surv=s=>alive(s).reduce((a,u)=>a+u.strength,0);
+  let title,body;
+  if(winner===null){title="Draw";body=`Both fleets stand at turn ${G.turn}.`;}
+  else{
+    title=`${sideName(winner)} wins`;
+    body=how==="break"
+      ?`${sideName(1-winner)}'s fleet breaks on turn ${G.turn} (${losses(1-winner)} squadrons destroyed or fled).`
+      :`On time at turn ${G.turn}: surviving strength ${surv(0)}–${surv(1)}.`;
+  }
+  const result=`${scen.t} | ctrl=${["Blue","Red","hotseat","spectate"][ctrlMode]} | `+
+    `winner=${winner===null?"draw":sideName(winner)+" ("+G.fleets[winner].name+")"} | `+
+    `turn=${G.turn} | strength ${surv(0)}-${surv(1)} | losses ${losses(0)}-${losses(1)}`;
+  log(`BATTLE OVER — ${title}. ${body}`,"t");
+  document.getElementById("ovTitle").textContent=title;
+  document.getElementById("ovBody").textContent=body+
+    (scen.a==="sphere"||scen.b==="sphere"?` (Sphere survival score: ${G.turn} turns.)`:"");
+  document.getElementById("ovResult").textContent=result;
+  document.getElementById("overlay").style.display="flex";
+  draw();updatePanels();
+  return true;
+}
+
+/* ============ rendering ============ */
+const cv=document.getElementById("cv"), cx2=cv.getContext("2d");
+const HS=19;                       // hex size (center→corner)
+const HW=HS*Math.sqrt(3);          // hex width
+const OX=26, OY=26;
+function hexCenter(c,r){return [OX+(c+0.5*(r&1))*HW, OY+r*HS*1.5];}
+function pixelToHex(x,y){
+  let best=null,bd=1e9;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const [hx,hy]=hexCenter(c,r), d=(hx-x)**2+(hy-y)**2;
+    if(d<bd){bd=d;best=[c,r];}
+  }
+  return bd<=(HS*1.05)**2?best:null;
+}
+function hexPath(x,y,s){
+  cx2.beginPath();
+  for(let k=0;k<6;k++){
+    const a=(60*k-90)*Math.PI/180;
+    const px=x+s*Math.cos(a), py=y+s*Math.sin(a);
+    k?cx2.lineTo(px,py):cx2.moveTo(px,py);
+  }
+  cx2.closePath();
+}
+function draw(){
+  cv.width=OX*2+HW*(COLS+0.5); cv.height=OY*2+HS*1.5*(ROWS-1)+HS*2;
+  cx2.fillStyle="#0b0e14";cx2.fillRect(0,0,cv.width,cv.height);
+  // fire-zone shading for selected human unit
+  let zone=new Set(), tgts=[];
+  if(act&&act.u){
+    tgts=canFire()?legalTargets(act.u):[];
+    const occ=occupied();
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+      const p=[c,r];
+      if(hexDist(act.u.pos,p)<=RANGE&&hexDist(act.u.pos,p)>0
+         &&inFireArc(act.u,p)&&losClear(act.u.pos,p,occ)) zone.add(key(c,r));
+    }
+  }
+  // grid
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const [x,y]=hexCenter(c,r);
+    hexPath(x,y,HS-0.6);
+    cx2.fillStyle=zone.has(key(c,r))?"#26203a":"#111624";
+    cx2.fill();
+    cx2.strokeStyle="#1d2438";cx2.lineWidth=1;cx2.stroke();
+  }
+  if(!G)return;
+  // command radii
+  for(const s of [0,1]){
+    const fl=flagship(s);
+    if(!fl)continue;
+    const [x,y]=hexCenter(fl.pos[0],fl.pos[1]);
+    cx2.beginPath();cx2.arc(x,y,(CMD_R+0.5)*HW,0,7);
+    cx2.strokeStyle=s===0?"#4a9eff22":"#ff5a5a22";cx2.lineWidth=2;cx2.stroke();
+  }
+  // units
+  for(const f of G.fleets)for(const u of f.units){
+    if(!u.alive)continue;
+    const [x,y]=hexCenter(u.pos[0],u.pos[1]);
+    const col=u.side===0?"#4a9eff":"#ff5a5a";
+    hexPath(x,y,HS-3.5);
+    cx2.fillStyle=u.state===ROUTED?"#3a3f4d":(u.activated?shade(col,0.45):col);
+    cx2.fill();
+    if(u.state===SHAKEN){cx2.strokeStyle="#ffd166";cx2.lineWidth=2.5;}
+    else{cx2.strokeStyle="#0b0e14";cx2.lineWidth=1.5;}
+    cx2.stroke();
+    if(act&&act.u===u){hexPath(x,y,HS-1);cx2.strokeStyle="#fff";cx2.lineWidth=2;cx2.stroke();}
+    if(tgts.includes(u)){hexPath(x,y,HS-1);cx2.strokeStyle="#ff3333";cx2.lineWidth=2.5;cx2.stroke();}
+    // facing arrow
+    const a=DIR_ANGLE[u.facing]*Math.PI/180;
+    cx2.beginPath();
+    cx2.moveTo(x+Math.cos(a)*(HS-4),y+Math.sin(a)*(HS-4));
+    cx2.lineTo(x+Math.cos(a+2.6)*(HS-11),y+Math.sin(a+2.6)*(HS-11));
+    cx2.lineTo(x+Math.cos(a-2.6)*(HS-11),y+Math.sin(a-2.6)*(HS-11));
+    cx2.closePath();cx2.fillStyle="#0b0e14";cx2.fill();
+    // label + flagship star
+    cx2.fillStyle="#0b0e14";cx2.font="bold 9px system-ui";cx2.textAlign="center";
+    cx2.fillText(u.flag?"★":u.id.slice(1),x,y+3);
+    // strength pips
+    for(let i=0;i<4;i++){
+      cx2.beginPath();cx2.arc(x-9+i*6,y+HS-8,2,0,7);
+      cx2.fillStyle=i<u.strength?"#fff":"#ffffff33";cx2.fill();
+    }
+  }
+}
+function shade(hex,f){
+  const n=parseInt(hex.slice(1),16);
+  const r=(n>>16)*f|0,g=((n>>8)&255)*f|0,b=(n&255)*f|0;
+  return `rgb(${r},${g},${b})`;
+}
+
+/* ============ panels & log ============ */
+const logEl=document.getElementById("log");
+function log(msg,cls){
+  const d=document.createElement("div");
+  if(cls)d.className=cls;
+  d.textContent=msg;
+  logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;
+}
+function updatePanels(){
+  const st=document.getElementById("status");
+  if(!G)return;
+  const lossStr=s=>`${losses(s)}/${BREAK_AT} losses`;
+  st.innerHTML=`<span class="who" style="color:var(--gold)">Turn ${G.turn}/${MAX_TURNS}</span> — `+
+    `<span style="color:var(--blue)">Blue ${G.fleets[0].name}${G.fleets[0].low?" (low supply)":""}: ${lossStr(0)}</span> · `+
+    `<span style="color:var(--red)">Red ${G.fleets[1].name}${G.fleets[1].low?" (low supply)":""}: ${lossStr(1)}</span>`;
+  const ai=document.getElementById("actinfo");
+  const btns={L:document.getElementById("btnL"),F:document.getElementById("btnF"),
+              R:document.getElementById("btnR"),Fi:document.getElementById("btnFire"),
+              E:document.getElementById("btnEnd")};
+  if(G.over){ai.textContent="Battle over.";for(const b of Object.values(btns))b.disabled=true;return;}
+  if(act&&!act.u){
+    ai.innerHTML=`<b style="color:${act.side===0?"var(--blue)":"var(--red)"}">${sideName(act.side)}</b>: click one of your un-activated squadrons.`;
+    for(const b of Object.values(btns))b.disabled=true;
+  }else if(act&&act.u){
+    const u=act.u;
+    ai.innerHTML=`<b>${u.id}${u.flag?" ★":""}</b> — str ${u.strength}, ${STATE_NAME[u.state]}, `+
+      `${act.cmd?"in command (move + fire)":"OUT of command (move OR fire)"}<br>`+
+      `MP ${act.mp}/${MP_MAX}${act.fired?" · has fired":""}`+
+      (act.fireMode?` · <span style="color:var(--red)">pick a highlighted target</span>`:"");
+    btns.L.disabled=btns.R.disabled=btns.F.disabled=!canMove();
+    btns.Fi.disabled=!canFire();
+    btns.E.disabled=false;
+  }else{
+    ai.textContent="AI is acting…";
+    for(const b of Object.values(btns))b.disabled=true;
+  }
+}
+
+/* ============ wiring ============ */
+function buildMenu(){
+  const el=document.getElementById("scenlist");
+  SCENARIOS.forEach((s,i)=>{
+    const b=document.createElement("button");
+    b.className="scenario";
+    b.innerHTML=`<b>${i+1}. ${s.t}</b><span>${s.n}</span>`;
+    b.onclick=()=>{
+      scen=s;
+      ctrlMode=+document.querySelector('input[name="ctrl"]:checked').value;
+      document.getElementById("menu").style.display="none";
+      document.getElementById("battle").style.display="block";
+      const spect=ctrlMode===3;
+      document.getElementById("btnStep").style.display=spect?"":"none";
+      document.getElementById("btnAuto").style.display=spect?"":"none";
+      newBattle();
+    };
+    el.appendChild(b);
+  });
+}
+cv.addEventListener("click",ev=>{
+  if(!G||G.over||!act)return;
+  const r=cv.getBoundingClientRect();
+  const h=pixelToHex(ev.clientX-r.left,ev.clientY-r.top);
+  if(!h)return;
+  const u=[...alive(0),...alive(1)].find(x=>x.pos[0]===h[0]&&x.pos[1]===h[1]);
+  if(!u)return;
+  if(!act.u){selectUnit(u);return;}
+  if(u.side!==act.side){doFireAt(u);return;}
+});
+document.getElementById("btnL").onclick=()=>doTurn(1);   // +1 dir index = CCW = left on screen
+document.getElementById("btnR").onclick=()=>doTurn(-1);
+document.getElementById("btnF").onclick=doForward;
+document.getElementById("btnFire").onclick=()=>{if(canFire()){act.fireMode=true;updatePanels();draw();}};
+document.getElementById("btnEnd").onclick=endActivation;
+document.getElementById("btnMenu").onclick=toMenu;
+document.getElementById("btnRestart").onclick=()=>{closeOv();newBattle();};
+document.getElementById("btnStep").onclick=()=>{if(ctrlMode===3&&!G.over){proceed();}};
+document.getElementById("btnAuto").onclick=function(){
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;this.textContent="Auto ▶";return;}
+  this.textContent="Auto ⏸";
+  autoTimer=setInterval(()=>{if(G.over){clearInterval(autoTimer);autoTimer=null;}else proceed();},220);
+};
+document.addEventListener("keydown",ev=>{
+  if(!act||!act.u)return;
+  if(ev.key==="q"||ev.key==="Q")doTurn(1);
+  else if(ev.key==="e"||ev.key==="E")doTurn(-1);
+  else if(ev.key==="w"||ev.key==="W")doForward();
+  else if(ev.key==="f"||ev.key==="F"){if(canFire()){act.fireMode=true;updatePanels();draw();}}
+  else if(ev.key===" "){ev.preventDefault();endActivation();}
+});
+function toMenu(){
+  closeOv();
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;}
+  G=null;act=null;
+  document.getElementById("battle").style.display="none";
+  document.getElementById("menu").style.display="block";
+}
+function closeOv(){document.getElementById("overlay").style.display="none";}
+document.getElementById("ovAgain").onclick=()=>{closeOv();newBattle();};
+document.getElementById("ovMenu").onclick=toMenu;
+document.getElementById("ovCopy").onclick=()=>{
+  navigator.clipboard&&navigator.clipboard.writeText(
+    document.getElementById("ovResult").textContent);
+};
+buildMenu();
+</script>
+</body>
+</html>
