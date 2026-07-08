@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Monte-Carlo baseline for the paper battle rules (docs/prototypes/battle-rules.md).
 
-Implements battle-rules v0.1 exactly — arcs, facing, LOS masking, morale ladder,
-command radius, supply — with deliberately DUMB handling: every squadron advances
-toward the nearest enemy and shoots when it can. No maneuvering cleverness, no
-formation-keeping. Purpose: measure what the geometry alone gives us (GDD open
-question 1) before table play. No dependencies. Deterministic per seed.
+Implements battle-rules v0.2 exactly — arcs, facing, LOS masking, morale ladder,
+command radius, two-state supply, fleet sizes 5/9/12 — with deliberately DUMB
+handling: every squadron advances toward the nearest enemy and shoots when it can.
+No maneuvering cleverness, no formation-keeping. Purpose: measure what the geometry
+alone gives us (GDD open questions 1 & 3) before/alongside human play. No
+dependencies. Deterministic per seed.
+
+v0.2 changes vs v0.1:
+- Supply split: "low" = -1 morale only; "critical" = -1 morale AND +1 to-hit
+  (v0.1's "low" was the current "critical"; human play confirmed it as auto-loss).
+- formation_layout/deploy/Battle parametrized by fleet size (5/9/12);
+  break threshold = size//2 + 1.
 
 Usage: python3 battle_sim.py [--trials N] [--seed S]
 """
@@ -21,7 +28,6 @@ DIR_ANGLE = [0.0, -60.0, -120.0, 180.0, 120.0, 60.0]  # cartesian angle of each 
 RANGE = 3
 CMD_RADIUS = 4
 MP = 3
-BREAK_LOSSES = 5
 MAX_TURNS = 40
 
 
@@ -81,21 +87,6 @@ def in_fire_arc(firer, target_pos):
     return rel_angle(firer.facing, firer.pos, target_pos) <= 90.0 + 1e-9
 
 
-def cube_lerp_round(a, b, t):
-    aq, ar = to_axial(*a)
-    bq, br = to_axial(*b)
-    q = aq + (bq - aq) * t
-    r = ar + (br - ar) * t
-    s = -q - r
-    rq, rr, rs = round(q), round(r), round(s)
-    dq, dr, ds = abs(rq - q), abs(rr - r), abs(rs - s)
-    if dq > dr and dq > ds:
-        rq = -rr - rs
-    elif dr > ds:
-        rr = -rq - rs
-    return from_axial(rq, int(rr))
-
-
 def los_clear(a, b, occupied):
     """Beam LOS blocked by any squadron between. Edge cases favor the shooter."""
     n = hex_dist(a, b)
@@ -116,7 +107,7 @@ def los_clear(a, b, occupied):
                 rq = -rr - rs
             elif dr > ds:
                 rr = -rq - rs
-            h = from_axial(int(rq), int(rr))
+            h = from_axial(rq, int(rr))
             if h != a and h != b and h in occupied:
                 clear = False
                 break
@@ -147,10 +138,10 @@ class Squadron:
 
 
 class Fleet:
-    def __init__(self, name, units, low_supply=False):
+    def __init__(self, name, units, supply="ok"):
         self.name = name
         self.units = units
-        self.low_supply = low_supply
+        self.supply = supply  # "ok" | "low" | "critical"
         self.flag_lost = False
 
     def losses(self):
@@ -165,47 +156,74 @@ class Fleet:
 
 # --- formations (fwd, lat, dfacing) ; dfacing: 0 straight, +1 toward +lat ----
 
-def formation_layout(name):
-    if name == "line":
-        return [(0, l, 0) for l in range(-4, 5)], 4
-    if name == "spindle":  # diamond 1-2-3-2-1, deep and narrow
-        sp = [(2, 0, 0), (1, -1, 0), (1, 1, 0), (0, -1, 0), (0, 0, 0), (0, 1, 0),
-              (-1, -1, 0), (-1, 1, 0), (-2, 0, 0)]
-        return sp, 4
-    if name == "crescent":  # wings advanced, angled inward
-        out = []
-        for l in range(-4, 5):
-            fwd = 2 if abs(l) >= 3 else (1 if abs(l) == 2 else 0)
-            df = 1 if l <= -2 else (-1 if l >= 2 else 0)
-            out.append((fwd, l, df))
-        return out, 4
-    if name == "echelon":  # refused flank diagonal
-        return [(-l, l, 0) for l in range(-4, 5)], 4
-    if name == "sphere":  # ring, facing outward; holds position
-        ring = [(0, 0, 0)]
-        for i, (dc, dl) in enumerate([(1, 0), (1, -1), (0, -1), (-1, -1),
-                                      (-1, 0), (-1, 1), (0, 1), (1, 1)]):
-            ring.append((dc, dl, 0))
-        return ring, 0
-    if name == "column":  # single file travel order
-        return [(f, 0, 0) for f in range(-4, 5)], 4
-    raise ValueError(name)
+def formation_layout(name, size=9):
+    """Positions per fleet size. Returns (list of (fwd, lat, dfacing), flag_index)."""
+    if size == 5:
+        if name == "line":
+            return [(0, l, 0) for l in range(-2, 3)], 2
+        if name == "spindle":  # diamond 1-3-1
+            return [(1, 0, 0), (0, -1, 0), (0, 0, 0), (0, 1, 0), (-1, 0, 0)], 2
+        if name == "crescent":
+            return [(1 if abs(l) == 2 else 0, l,
+                     1 if l <= -2 else (-1 if l >= 2 else 0)) for l in range(-2, 3)], 2
+        if name == "echelon":
+            return [(-l, l, 0) for l in range(-2, 3)], 2
+        if name == "sphere":
+            return [(0, 0, 0), (1, 0, 0), (0, -1, 0), (-1, 0, 0), (0, 1, 0)], 0
+        if name == "column":
+            return [(f, 0, 0) for f in range(-2, 3)], 2
+    if size == 9:
+        if name == "line":
+            return [(0, l, 0) for l in range(-4, 5)], 4
+        if name == "spindle":  # diamond 1-2-3-2-1
+            return [(2, 0, 0), (1, -1, 0), (1, 1, 0), (0, -1, 0), (0, 0, 0), (0, 1, 0),
+                    (-1, -1, 0), (-1, 1, 0), (-2, 0, 0)], 4
+        if name == "crescent":
+            return [(2 if abs(l) >= 3 else (1 if abs(l) == 2 else 0), l,
+                     1 if l <= -2 else (-1 if l >= 2 else 0)) for l in range(-4, 5)], 4
+        if name == "echelon":
+            return [(-l, l, 0) for l in range(-4, 5)], 4
+        if name == "sphere":
+            return [(0, 0, 0), (1, 0, 0), (1, -1, 0), (0, -1, 0), (-1, -1, 0),
+                    (-1, 0, 0), (-1, 1, 0), (0, 1, 0), (1, 1, 0)], 0
+        if name == "column":
+            return [(f, 0, 0) for f in range(-4, 5)], 4
+    if size == 12:
+        if name == "line":
+            return [(0, l, 0) for l in range(-6, 6)], 6
+        if name == "spindle":  # ranks 1-2-3-3-2-1, deep wedge
+            return [(3, 0, 0), (2, -1, 0), (2, 1, 0),
+                    (1, -1, 0), (1, 0, 0), (1, 1, 0),
+                    (0, -1, 0), (0, 0, 0), (0, 1, 0),
+                    (-1, -1, 0), (-1, 1, 0), (-2, 0, 0)], 7
+        if name == "crescent":
+            return [(2 if abs(l) >= 4 else (1 if abs(l) >= 2 else 0), l,
+                     1 if l <= -2 else (-1 if l >= 2 else 0)) for l in range(-6, 6)], 6
+        if name == "echelon":  # clamp advance so wing tips don't start in contact
+            return [(max(-4, min(4, -l)), l, 0) for l in range(-6, 6)], 6
+        if name == "sphere":
+            return [(0, 0, 0), (1, 0, 0), (1, -1, 0), (0, -1, 0), (-1, -1, 0),
+                    (-1, 0, 0), (-1, 1, 0), (0, 1, 0), (1, 1, 0),
+                    (2, 0, 0), (0, -2, 0), (0, 2, 0)], 0
+        if name == "column":  # double column (single file of 12 won't fit the board)
+            return [(f, l, 0) for f in range(-2, 4) for l in (0, 1)], 4
+    raise ValueError(f"{name}@{size}")
 
 
 HOLD_FORMATIONS = {"sphere"}  # doctrine: stand and receive
 
 
-def deploy(name, side):
-    layout, flag_idx = formation_layout(name)
+def deploy(name, side, size=9):
+    layout, flag = formation_layout(name, size)
     straight = 0 if side == 0 else 3
-    toward_pos_lat = 5 if side == 0 else 4
-    toward_neg_lat = 1 if side == 0 else 2
+    to_pos = 5 if side == 0 else 4
+    to_neg = 1 if side == 0 else 2
     units = []
     for i, (fwd, lat, df) in enumerate(layout):
         col = (5 + fwd) if side == 0 else (18 - fwd)
         row = 9 + lat
-        facing = straight if df == 0 else (toward_pos_lat if df > 0 else toward_neg_lat)
-        units.append(Squadron(side, (col, row), facing, flag=(i == flag_idx)))
+        facing = straight if df == 0 else (to_pos if df > 0 else to_neg)
+        units.append(Squadron(side, (col, row), facing, flag=(i == flag)))
     if name == "sphere":  # outward ring facings
         center = units[0].pos
         for u in units[1:]:
@@ -217,11 +235,13 @@ def deploy(name, side):
 # --- battle ------------------------------------------------------------------
 
 class Battle:
-    def __init__(self, forms, rng, low_supply=(False, False)):
+    def __init__(self, forms, rng, supply=("ok", "ok"), size=9):
         self.rng = rng
         self.forms = forms
-        self.fleets = [Fleet(forms[0], deploy(forms[0], 0), low_supply[0]),
-                       Fleet(forms[1], deploy(forms[1], 1), low_supply[1])]
+        self.size = size
+        self.break_at = size // 2 + 1
+        self.fleets = [Fleet(forms[0], deploy(forms[0], 0, size), supply[0]),
+                       Fleet(forms[1], deploy(forms[1], 1, size), supply[1])]
 
     def occupied(self):
         return {u.pos: u for f in self.fleets for u in f.units if u.alive}
@@ -247,7 +267,7 @@ class Battle:
             mod += 1
         if from_flank_rear:
             mod -= 1
-        if self.fleets[u.side].low_supply:
+        if self.fleets[u.side].supply != "ok":
             mod -= 1
         if self.fleets[u.side].flag_lost:
             mod -= 1
@@ -292,7 +312,7 @@ class Battle:
         dice = u.strength if u.state == STEADY else (u.strength + 1) // 2
         arc = incoming_arc(target, u.pos)
         need = {"front": 5, "flank": 4, "rear": 3}[arc]
-        if self.fleets[u.side].low_supply:
+        if self.fleets[u.side].supply == "critical":
             need += 1
         hits = sum(1 for _ in range(dice) if self.rng.randint(1, 6) >= need)
         if hits == 0:
@@ -383,8 +403,7 @@ class Battle:
             en = self.enemies(u.side)
             if en:
                 goal = min(en, key=lambda e: hex_dist(u.pos, e.pos)).pos
-                nearest = hex_dist(u.pos, goal)
-                if nearest <= RANGE + 1:  # only rotate once threatened
+                if hex_dist(u.pos, goal) <= RANGE + 1:  # only rotate once threatened
                     d = self.desired_dir(u, goal)
                     if u.facing != d:
                         self.turn_toward(u, d)
@@ -402,7 +421,7 @@ class Battle:
                 self.fire(u, target)
 
     def broken(self, side):
-        return self.fleets[side].losses() >= BREAK_LOSSES
+        return self.fleets[side].losses() >= self.break_at
 
     def run(self):
         for turn in range(1, MAX_TURNS + 1):
@@ -432,14 +451,13 @@ WHEEL = [("spindle", "line"), ("line", "crescent"), ("crescent", "spindle"),
          ("echelon", "spindle"), ("sphere", "crescent")]
 
 
-def run_pair(f1, f2, trials, rng, supply=(False, False)):
+def run_pair(f1, f2, trials, rng, size=9):
     wins = {f1: 0, f2: 0, "draw": 0}
     turns = 0
     for t in range(trials):
         flip = t % 2 == 1
         forms = (f2, f1) if flip else (f1, f2)
-        sup = (supply[1], supply[0]) if flip else supply
-        w, tn = Battle(forms, rng, sup).run()
+        w, tn = Battle(forms, rng, size=size).run()
         turns += tn
         if w is None:
             wins["draw"] += 1
@@ -448,17 +466,33 @@ def run_pair(f1, f2, trials, rng, supply=(False, False)):
     return wins, turns / trials
 
 
+def supply_mirror(state, trials, rng, size=9):
+    """Mirror line-vs-line; one side at the given supply state."""
+    w_ok = w_bad = dr = 0
+    for t in range(trials):
+        bad_is_b = t % 2 == 0
+        sup = ("ok", state) if bad_is_b else (state, "ok")
+        w, _ = Battle(("line", "line"), rng, supply=sup, size=size).run()
+        if w is None:
+            dr += 1
+        elif sup[w] == state:
+            w_bad += 1
+        else:
+            w_ok += 1
+    return w_ok, w_bad, dr
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trials", type=int, default=400)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
     rng = random.Random(args.seed)
+    N = args.trials
 
-    print(f"battle_sim — trials/pair={args.trials}, seed={args.seed}, "
-          f"dumb-advance AI, rules v0.1\n")
+    print(f"battle_sim — trials/pair={N}, seed={args.seed}, dumb-advance AI, rules v0.2\n")
 
-    print("## Full matrix (row formation win% vs column; rest are losses or draws)\n")
+    print("## Full matrix, 9v9 (row formation win% vs column; rest are losses or draws)\n")
     header = "| vs | " + " | ".join(FORMS) + " |"
     print(header)
     print("|---" * (len(FORMS) + 1) + "|")
@@ -471,39 +505,33 @@ def main():
                 continue
             key = tuple(sorted((f1, f2)))
             if key not in results:
-                results[key] = run_pair(key[0], key[1], args.trials, rng)
+                results[key] = run_pair(key[0], key[1], N, rng)
             wins, avg_t = results[key]
-            pct = 100.0 * wins[f1] / args.trials
-            cells.append(f"{pct:.0f}%")
+            cells.append(f"{100.0 * wins[f1] / N:.0f}%")
         print(f"| **{f1}** | " + " | ".join(cells) + " |")
 
-    print("\n## Counter-wheel legs (predicted winner listed first)\n")
+    print("\n## Counter-wheel legs, 9v9 (predicted winner listed first)\n")
     print("| Leg | predicted winner win% | loser win% | draws | avg turns |")
     print("|---|---|---|---|---|")
     for a, b in WHEEL:
         key = tuple(sorted((a, b)))
         wins, avg_t = results[key]
-        d = 100.0 * wins["draw"] / args.trials
-        print(f"| {a} vs {b} | {100.0 * wins[a] / args.trials:.0f}% | "
-              f"{100.0 * wins[b] / args.trials:.0f}% | {d:.0f}% | {avg_t:.1f} |")
+        d = 100.0 * wins["draw"] / N
+        print(f"| {a} vs {b} | {100.0 * wins[a] / N:.0f}% | "
+              f"{100.0 * wins[b] / N:.0f}% | {d:.0f}% | {avg_t:.1f} |")
 
-    print("\n## Supply weight (mirror line-vs-line, side 2 on low supply)\n")
-    wins, avg_t = run_pair("line", "line", args.trials, rng, supply=(False, True))
-    # run_pair can't distinguish mirror sides by name; rerun manually
-    w_ok = w_low = dr = 0
-    for t in range(args.trials):
-        flip = t % 2 == 1
-        sup = (True, False) if flip else (False, True)
-        w, _ = Battle(("line", "line"), rng, sup).run()
-        if w is None:
-            dr += 1
-        elif sup[w]:
-            w_low += 1
-        else:
-            w_ok += 1
-    print(f"normal supply wins {100.0 * w_ok / args.trials:.0f}% · "
-          f"low supply wins {100.0 * w_low / args.trials:.0f}% · "
-          f"draws {100.0 * dr / args.trials:.0f}%")
+    print("\n## Supply weight v0.2 (mirror line-vs-line, one side degraded)\n")
+    for state in ("low", "critical"):
+        ok, bad, dr = supply_mirror(state, N, rng)
+        print(f"{state:>8}: normal wins {100.0 * ok / N:.0f}% · degraded wins "
+              f"{100.0 * bad / N:.0f}% · draws {100.0 * dr / N:.0f}%")
+
+    print("\n## Fleet-size sanity (spindle vs line at 5/9/12; all must terminate)\n")
+    for size in (5, 9, 12):
+        wins, avg_t = run_pair("spindle", "line", N, rng, size=size)
+        print(f"{size:>2}v{size}: spindle {100.0 * wins['spindle'] / N:.0f}% · "
+              f"line {100.0 * wins['line'] / N:.0f}% · draws {wins['draw']} · "
+              f"avg turns {avg_t:.1f}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,15 @@
-# Paper Prototype — Fleet Battle Rules v0.1
+# Paper Prototype — Fleet Battle Rules v0.2
+
+**Changelog v0.1 → v0.2** (from playtest verdict, §10):
+
+- **Supply split into two states.** *Low supply* is now −1 morale only (to-hit
+  unchanged); the old low-supply effect (−1 morale **and** worse to-hit) is renamed
+  **critical supply**. v0.1's single state was an auto-loss (97/3 sim, "felt hopeless"
+  in human play); v0.2 low supply retests at 66/34 — a clear but playable handicap.
+- **Fleet size variants.** Formations are parametrized for **5, 9, or 12** squadrons
+  per side; break threshold generalizes to *more than half destroyed/fled* (3 of 5,
+  5 of 9, 7 of 12). 9 remains the default. Added to answer GDD open question 3.
+- No other rule changed — the playtest verdict (§10.c) confirmed the v0.1 core.
 
 Playable-on-a-table encoding of GDD §5.4–§5.5 (formations, arcs, facing, morale, rout,
 supply). Purpose: answer **open question 1** — *does the formation counter-wheel emerge
@@ -9,9 +20,9 @@ These rules contain **zero formation modifiers**: a "formation" is nothing but w
 put your counters and where they point. If the counter-wheel appears anyway, question 1
 is answered the way we hoped.
 
-**Components:** hex paper (~24×18 hexes), 9 squadron counters per side with a printed
-facing arrow (mark one `F` for flagship), d6s, strength tokens (4 per squadron), and
-markers for *Shaken* / *Routed* / *Activated*.
+**Components:** hex paper (~24×18 hexes), 9 squadron counters per side (5 or 12 for the
+size variants, §8) with a printed facing arrow (mark one `F` for flagship), d6s, strength
+tokens (4 per squadron), and markers for *Shaken* / *Routed* / *Activated*.
 
 ---
 
@@ -23,7 +34,8 @@ Each squadron has:
 - **Status:** *Steady* → *Shaken* → *Routed* (morale ladder, §6).
 - **Facing:** the arrow points at a hexside (not a corner). All arcs derive from it.
 
-A fleet = 9 squadrons, one of which is the **flagship**.
+A fleet = 9 squadrons by default (5 or 12 in the size variants, §8), one of which is the
+**flagship**.
 
 ## 2. Turn structure
 
@@ -68,7 +80,7 @@ real trade-off: rear ranks in a deep formation are protected but masked.)*
 - Roll **1d6 per current Strength point**. *Shaken* squadrons roll half, rounded up.
 - **To-hit, by the arc of the TARGET you are firing into:**
 
-  | You are in the target's… | Hit on | (Low supply: hit on) |
+  | You are in the target's… | Hit on | (Critical supply: hit on) |
   |---|---|---|
   | Front arc | 5+ | 6 |
   | Flank arc | 4+ | 5+ |
@@ -77,8 +89,14 @@ real trade-off: rear ranks in a deep formation are protected but masked.)*
 - Each hit removes 1 Strength token. Choose one target per activation (nearest legal
   target if you can't decide).
 
-**Low supply** is a scenario flag on a whole fleet (GDD §5.8): its squadrons use the
-bracketed to-hit column and take −1 on all morale rolls.
+**Supply states** are scenario flags on a whole fleet (GDD §5.8), two steps of the same
+meter:
+
+- **Low supply:** −1 on all morale rolls. To-hit is *unchanged* — a hungry fleet still
+  shoots straight, it just breaks sooner.
+- **Critical supply:** −1 on all morale rolls **and** use the bracketed to-hit column
+  above. This is near-hopeless by design — the strategic layer's message is *never let
+  a fleet fight at critical*.
 
 ## 6. Morale
 
@@ -95,7 +113,7 @@ bracketed to-hit column and take −1 on all morale rolls.
 | A *Steady* friendly squadron is adjacent | +1 |
 | Within flagship command radius (4 hexes) | +1 |
 | The triggering fire came from your flank or rear | −1 |
-| Low supply | −1 |
+| Low **or** critical supply | −1 |
 | Your flagship has been destroyed (permanent) | −1 |
 
 **Failing a check:** *Steady* → *Shaken*; *Shaken* → *Routed*.
@@ -114,8 +132,8 @@ command radius is gone (every squadron is move-*or*-fire for the rest of the bat
 
 ## 7. Victory
 
-A fleet **breaks** when 5 of its 9 squadrons are destroyed or have fled the map. The
-other side wins. If neither fleet breaks by the end of turn 15 (paper) the battle is a
+A fleet **breaks** when **more than half** of its squadrons are destroyed or have fled
+the map — **3 of 5, 5 of 9, 7 of 12**. The other side wins. If neither fleet breaks by the end of turn 15 (paper) the battle is a
 draw — score it by surviving Strength. Voluntary withdrawal off your own edge is always
 legal (and often correct).
 
@@ -146,6 +164,13 @@ CRESCENT / ENVELOPMENT       SPHERE (all-round)         COLUMN
  angled inward)
 ```
 
+**Fleet size variants (v0.2).** The same formation *shapes* scale to **5** or **12**
+squadrons per side (e.g. the spindle is a 1-3-1 diamond at 5 and a 1-2-3-3-2-1 deep
+wedge at 12; the line just gets wider). Break thresholds: 3 / 5 / 7 (§7). The variants
+exist to answer **GDD open question 3** — how many squadrons per side is the sweet spot
+between command load and spectacle. Exact per-size layouts are in
+`prototypes/battle_sim.py` (`formation_layout`) and selectable in the web prototype.
+
 ## 9. Playtest protocol
 
 Play each matchup below at least twice, swapping sides. Record: winner, turns, surviving
@@ -162,6 +187,7 @@ design lives there).
 | 6 | Any vs Column | Column gets slaughtered (sanity check) |
 | 7 | Mirror match, one side **Low supply** | Supply side loses clearly but not hopelessly |
 | 8 | Mirror match, one side flagship hunted early | Decapitation is strong but risky |
+| 9 | Mirror match, one side **Critical supply** *(v0.2)* | Near-hopeless — a "never fight like this" lesson |
 
 **Questions to answer (write answers in the playtest notes below):**
 
@@ -198,7 +224,19 @@ Results (400 battles per matchup, sides mirrored, seed 42 — reproduce with
 | **sphere** | 32% | 11% | 12% | 13% | — | 91% |
 | **column** | 6% | 12% | 9% | 9% | 8% | — |
 
-Supply test (mirror line-vs-line, one side low supply): normal supply wins **97%**.
+*(The matrix above is the v0.1 = v0.2 formation baseline — the supply split changed
+nothing for fleets in normal supply. Supply and fleet-size rows below are v0.2.)*
+
+Supply tests (mirror line-vs-line, one side degraded, v0.2 rules): normal supply beats
+**low supply 66/34** (clear handicap, inside the 60–75 target band) and beats
+**critical supply 96/3** (near-auto-loss, by design — v0.1's single "low" state had this
+weight, which playtesting rejected as a *default* handicap).
+
+Fleet-size sanity (v0.2 variants, spindle-vs-line): **5v5 50/50, 9v9 27/72, 12v12
+58/41**; all sizes terminate cleanly (avg 6.0 / 7.9 / 9.1 turns). Interesting side
+finding: *fleet size shifts the matchup* — the deep wedge scales up well and the
+5-a-side game is too small for the line's width to matter. Feeds GDD open question 3.
+
 Average battle length: 6–12 turns, always ending by break threshold, never by grind.
 
 **Headline findings:**
@@ -220,10 +258,10 @@ Average battle length: 6–12 turns, always ending by break threshold, never by 
    roughly as designed — it's a survival formation, and a 1v1 frontal duel isn't its
    use case. Test it on the table in its real context: surrounded, awaiting relief,
    scoring turns survived rather than wins.
-4. **Low supply is drastically over-weighted** (97/3 — auto-loss, not handicap).
-   +1 to-hit *and* −1 morale double-dips. Recommendation for v0.2: low supply affects
-   **morale only** (−1), with to-hit worsening reserved for a deeper "critical supply"
-   state — retest for a ~70/30 target.
+4. **v0.1 low supply was drastically over-weighted** (97/3 — auto-loss, not handicap).
+   +1 to-hit *and* −1 morale double-dips. **Implemented in v0.2:** low supply affects
+   **morale only** (−1), with to-hit worsening reserved for the deeper "critical
+   supply" state. Retest landed at 66/34 — inside the target band, no further tuning.
 5. **Pacing is right:** battles are decisive (6–12 turns), always ending in a break —
    the morale cascade produces rout endings, not annihilation grinds, exactly per GDD
    §5.5.
@@ -234,7 +272,7 @@ Average battle length: 6–12 turns, always ending by break threshold, never by 
 units home in), no deliberate flanking movement, no withdrawal judgment, no flagship
 hunting. Everything the sim can't do is precisely what the table playtest is for.
 
-### 10.b Human playtests — TO DO (the human half of issue #1)
+### 10.b Human playtests — DONE (the human half of issue #1)
 
 The sim can't test what only a human will find: deliberate flank hooks, feints, refusing
 a flank, flagship sniping, when to withdraw. These rules are playable in the browser —
@@ -245,7 +283,7 @@ headless port-validation test confirms the page reproduces the sim's win rates).
 scenario menu is the §9 protocol. Play each test, use the "copy result line" button, and
 fill in:
 
-- [ ] Result lines & answers to questions 1–6 (§9)
+- [x] Result lines & answers to questions 1–6 (§9)
 
   ```text
   2026-07-08  Spindle vs Wide Line | ctrl=Blue | winner=Blue (spindle) | turn=6 | strength 12-16 | losses 4-5
@@ -281,7 +319,43 @@ fill in:
     station behind the engaged line, balance command-radius coverage against exposure,
     withdraw the flagship under threat. Without it every battle vs the AI collapses
     into flagship sniping.
-- [ ] Verdict on **open question 1** (emergent wheel vs. need for modifiers)
-- [ ] Recommended number tweaks for battle-rules v0.2
-- [ ] Verdict on **squadron count** feel (open question 3 — needs a v0.2 page option
-      for 5- and 12-squadron fleets)
+
+  **Scenario 7 (low-supply mirror, v0.1 rules):** played — the supplied side felt
+  **hopeless to fight against** ("felt hopeless"), confirming the sim's 97/3. Human
+  play validated the nerf: v0.1's combined penalty is a foregone conclusion, not a
+  battle. This drove the v0.2 supply split (low = morale only, 66/34; the old weight
+  survives as *critical supply*).
+
+- [x] Verdict on **open question 1** (emergent wheel vs. need for modifiers) — see 10.c
+- [x] Recommended number tweaks → implemented as **v0.2** (changelog at top)
+- [ ] Verdict on **squadron count** feel (open question 3) — the v0.2 page now has the
+      5/12-squadron variants; play them during Phase 0b/0c. *Stays open, carried
+      forward — not a blocker for issue #1.*
+
+### 10.c Final verdict (closes issue #1)
+
+Answers to the §9 questions:
+
+1. **Does the wheel hold with zero formation modifiers?** Yes — as a **soft, emergent
+   wheel**. Sim geometry alone produces real formation asymmetries (crescent wraps,
+   line firepower, column death); human skill supplies the rest (spindle vs line goes
+   from 26% AI-vs-AI to 3–2 in human hands). No leg *failed*; the spindle's
+   breakthrough is a maneuver you must execute, not a stat you receive. **No
+   formation-vs-formation modifiers needed. GDD open question 1: CLOSED.**
+2. **Are flank/rear to-hit steps enough to make maneuver the game?** Yes. Every winning
+   human tactic reported (edge attack, baiting the AI into LOS self-masking, flagship
+   decapitation) was about *angles and position*, never about raw dice.
+3. **Morale cascade pace:** right. All endings — sim and human — were routs/breaks in
+   4–12 turns, never annihilation grinds. Matches GDD §5.5 intent.
+4. **Command radius:** creates real decisions. Flagship placement decided most human
+   games (protect yours, snipe theirs); decapitation is strong by design and its
+   counter is positioning, which is exactly the skill expression we want. (The *AI*
+   must learn it — requirement filed on issue #11.)
+5. **Supply weight:** v0.1 was wrong (auto-loss, confirmed by sim 97/3 and human "felt
+   hopeless"). Fixed in v0.2: low 66/34, critical 96/3 kept as the deliberate
+   never-fight-like-this state.
+6. **Fun check:** passed — 6 voluntary human games, with a learning curve (losses in
+   games 2–3, then figured-out wins) and articulated tactics. The design lives.
+
+**Carried forward:** open question 3 (fleet size) — variants shipped in v0.2, verdict
+pending play. AI flagship preservation — requirement on issue #11.
