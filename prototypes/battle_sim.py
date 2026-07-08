@@ -14,6 +14,10 @@ v0.2 changes vs v0.1:
 - formation_layout/deploy/Battle parametrized by fleet size (5/9/12);
   break threshold = size//2 + 1.
 
+Rules v0.2.1 adds a backward move (1 hex astern for all 3 MP, facing kept). The
+dumb AI never retreats, so it is NOT modeled here — results are unaffected. It is
+implemented in the web prototype (docs/prototypes/battle.html) for human play.
+
 Usage: python3 battle_sim.py [--trials N] [--seed S]
 """
 

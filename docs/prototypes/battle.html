@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Successor Stars — Battle Rules Prototype v0.2</title>
+<title>Successor Stars — Battle Rules Prototype v0.2.1</title>
 <style>
   :root{
     --bg:#0b0e14; --panel:#131826; --panel2:#1a2133; --line:#2a3350;
@@ -62,7 +62,7 @@
 
   <!-- ================= MENU ================= -->
   <div id="menu">
-    <h1>Successor Stars — battle rules prototype <span class="tag">v0.2</span></h1>
+    <h1>Successor Stars — battle rules prototype <span class="tag">v0.2.1</span></h1>
     <p style="color:var(--dim);max-width:70ch">Digital playtest of the paper rules
     (<a href="https://github.com/tharak/Battleships/blob/main/docs/prototypes/battle-rules.md">docs/prototypes/battle-rules.md</a>,
     GDD §5.4–§5.5). Zero formation modifiers — formations are only positions and facings.
@@ -96,12 +96,13 @@
             <button id="btnL">&#10226; Left</button>
             <button id="btnF">&#8593; Forward</button>
             <button id="btnR">&#10227; Right</button>
+            <button id="btnB" title="1 hex astern, keeps facing — costs all 3 MP">&#8595; Back (3 MP)</button>
             <button id="btnFire" class="danger">Fire</button>
             <button id="btnEnd" class="primary">End activation</button>
           </div>
           <div class="kbd"><kbd>Q</kbd>/<kbd>E</kbd> turn · <kbd>W</kbd> forward ·
-            <kbd>F</kbd> fire mode · <kbd>Space</kbd> end · click a unit to select / a
-            highlighted enemy to shoot</div>
+            <kbd>S</kbd> back · <kbd>F</kbd> fire mode · <kbd>Space</kbd> end · click a
+            unit to select / a highlighted enemy to shoot</div>
         </div>
         <div class="panel"><div id="log"></div></div>
         <div class="panel" style="display:flex;gap:6px;flex-wrap:wrap">
@@ -118,8 +119,9 @@
           <div style="font-size:12.5px;color:var(--dim)">
           Dice = Strength (Shaken: half, round up) · range 3 · fire only into your own
           front arc · LOS blocked by any squadron.<br>
-          Move: 3 MP; 1/hex forward, 1/60° turn. In command (≤4 of flagship): move
-          <b>and</b> fire; outside: move <b>or</b> fire.<br>
+          Move: 3 MP; 1/hex forward, 1/60° turn, or all 3 to back up one hex (facing
+          kept). In command (≤4 of flagship): move <b>and</b> fire; outside: move
+          <b>or</b> fire.<br>
           Morale (d6 ≥ 4) on: taking losses · friend routs/dies within 2 · flagship lost.
           Mods: +1 steady friend adjacent, +1 in command, −1 hit from flank/rear, −1 low
           <em>or</em> critical supply, −1 flagship lost. Fail: Steady→Shaken→Routed.<br>
@@ -533,6 +535,7 @@ function selectUnit(u){
   draw();updatePanels();
 }
 const canMove=()=>act&&act.u&&act.mp>0&&(act.cmd||!act.fired);
+const canBack=()=>canMove()&&act.mp>=MP_MAX;   // backward = the whole move
 const canFire=()=>act&&act.u&&!act.fired&&(act.cmd||!act.moved)
                   &&legalTargets(act.u).length>0;
 function doTurn(dir){ // dir: +1 left(ccw in dir index terms)… use explicit
@@ -554,6 +557,20 @@ function doForward(){
     }
   }
   u.pos=nx;act.mp--;act.moved=true;act.fireMode=false;
+  draw();updatePanels();
+}
+function doBackward(){
+  if(!canBack())return;
+  const u=act.u, nx=neighbor(u.pos,(u.facing+3)%6);
+  if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS)return;
+  if(occupied().has(key(nx[0],nx[1])))return;
+  if(u.state===SHAKEN){ // may not end a move closer to nearest enemy
+    const ne=nearestEnemy(u);
+    if(ne&&hexDist(nx,ne.pos)<hexDist(u.pos,ne.pos)){
+      log(`${u.id} is Shaken — it refuses to move toward the enemy`,"bad");return;
+    }
+  }
+  u.pos=nx;act.mp=0;act.moved=true;act.fireMode=false;
   draw();updatePanels();
 }
 function doFireAt(tgt){
@@ -702,7 +719,8 @@ function updatePanels(){
     `<span style="color:var(--red)">Red ${G.fleets[1].name}${supStr(1)}: ${lossStr(1)}</span>`;
   const ai=document.getElementById("actinfo");
   const btns={L:document.getElementById("btnL"),F:document.getElementById("btnF"),
-              R:document.getElementById("btnR"),Fi:document.getElementById("btnFire"),
+              R:document.getElementById("btnR"),B:document.getElementById("btnB"),
+              Fi:document.getElementById("btnFire"),
               E:document.getElementById("btnEnd")};
   if(G.over){ai.textContent="Battle over.";for(const b of Object.values(btns))b.disabled=true;return;}
   if(act&&!act.u){
@@ -715,6 +733,7 @@ function updatePanels(){
       `MP ${act.mp}/${MP_MAX}${act.fired?" · has fired":""}`+
       (act.fireMode?` · <span style="color:var(--red)">pick a highlighted target</span>`:"");
     btns.L.disabled=btns.R.disabled=btns.F.disabled=!canMove();
+    btns.B.disabled=!canBack();
     btns.Fi.disabled=!canFire();
     btns.E.disabled=false;
   }else{
@@ -757,6 +776,7 @@ cv.addEventListener("click",ev=>{
 document.getElementById("btnL").onclick=()=>doTurn(1);   // +1 dir index = CCW = left on screen
 document.getElementById("btnR").onclick=()=>doTurn(-1);
 document.getElementById("btnF").onclick=doForward;
+document.getElementById("btnB").onclick=doBackward;
 document.getElementById("btnFire").onclick=()=>{if(canFire()){act.fireMode=true;updatePanels();draw();}};
 document.getElementById("btnEnd").onclick=endActivation;
 document.getElementById("btnMenu").onclick=toMenu;
@@ -772,6 +792,7 @@ document.addEventListener("keydown",ev=>{
   if(ev.key==="q"||ev.key==="Q")doTurn(1);
   else if(ev.key==="e"||ev.key==="E")doTurn(-1);
   else if(ev.key==="w"||ev.key==="W")doForward();
+  else if(ev.key==="s"||ev.key==="S")doBackward();
   else if(ev.key==="f"||ev.key==="F"){if(canFire()){act.fireMode=true;updatePanels();draw();}}
   else if(ev.key===" "){ev.preventDefault();endActivation();}
 });
