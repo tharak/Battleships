@@ -223,9 +223,69 @@ S85) 99%.
 beyond a fixed rule, and never time regime actions around instability windows —
 everything the human playtest is for.
 
-### 11.b Human playtests — TO DO (the human half of issue #2)
+### 11.b Human playtests — DONE (the human half of issue #2)
 
-- [ ] Result lines & answers to questions 1–6 (§10)
-- [ ] Verdict on **open question 2** (W span; threshold constant vs randomized)
-- [ ] Verdict on **cost symmetry** (fun and fair at both poles?)
-- [ ] Recommended number tweaks for v0.2
+- [x] Result lines & answers to questions 1–6 (§10)
+
+  ```text
+  2026-07-08  Junta | play | survived | turns=12 | score=51 | W=3 S=5%  | planets=7 front=5  grievance=24
+  2026-07-08  Junta | play | coup     | turns=3  |          | W=3 S=5%  | planets=7 front=0  grievance=48
+  2026-07-08  Junta | play | coup     | turns=4  |          | W=3 S=20% | planets=5 front=11 grievance=0
+  2026-07-08  Junta | play | coup     | turns=7  |          | W=2 S=5%  | planets=4 front=10 grievance=29
+  2026-07-08  Machine state | play | survived ×2 (scores 52, 38)
+  2026-07-08  Oligarchy | play | survived | W=3 S=30% | planets=2 front=13 grievance=96 | score=17
+  2026-07-08  Oligarchy | play | survived | W=4 S=30% | planets=7 front=8  grievance=0  | score=47
+  2026-07-08  Aristocratic republic | play | coup ×2 (turns 8 and 11; one whittled to W=2)
+  2026-07-08  Broad republic | play | survived ×2 (scores 48, 54; ended W=8 and W=9)
+  2026-07-08  Random draw | play ×2 + watch:adaptive ×2 | survived ×4
+  ```
+
+  **16 games, 11 survived.** Player verdict: *"I think it's working well."* The lines
+  carry more than the tally:
+
+  - **The junta went 1–3 in human hands** against the autocrat doctrine's 94% — the
+    sim's script *knows* to pay the cronies first; a human learns it by dying. One run
+    tried expanding the franchise (S 5→20%) and still fell; one was whittled to W=2 by
+    failed plots. Sharpest skill curve of the set, like spindle-vs-line in the battle
+    prototype.
+  - **Steering got used, unprompted, and it won games.** Both oligarchy wins came from
+    regime actions: one purged the coalition from 6 down to 3 — deliberately collapsing
+    an oligarchy into a junta — and scraped through with 2 planets and grievance 96;
+    the other trimmed to W=4 and kept the populace at 0 grievance. Regime actions are
+    not dead weight.
+  - **The predictions held at every preset:** machine state 2–0 (coup-proof as
+    designed), aristocratic republic 0–2 (17% sim; the loyalty norm's teeth are real),
+    broad republic 2–0 (casualties-are-votes never got fatal), random draws 4–0.
+  - **The war dial bites:** across runs planets ranged 2–7 and fronts 0–13 — the
+    military slice was never safely ignorable.
+
+- [x] Verdict on **open question 2** — see 11.c
+- [x] Verdict on **cost symmetry** — see 11.c
+- [x] Number tweaks for v0.2 — none requested; v0.1 numbers stand
+
+### 11.c Final verdict (closes issue #2)
+
+Answers to the §10 questions:
+
+1. **Cost symmetry: PASS.** Both poles won games from the same rulebook and play
+   completely differently — the junta is pay-the-cronies-first brinkmanship, the
+   republic is a public-goods budget puzzle. Neither is the obviously correct pole
+   (sim: 94/90; human: both survivable, junta harder to *learn*).
+2. **Open question 2a — W span: keep 3–12.** Every band got played: poles safe in
+   competent hands, the W=9–11 valley and the low-S trap punishing but legible. No run
+   suggested the span is wrong. **CLOSED.**
+3. **Open question 2b — survival threshold: constant and visible.** Randomizing it
+   moved nothing in the sim (≤1pp) and the fixed 50% line reads clearly in play; the
+   crisis system already supplies the variance. **CLOSED.**
+4. **Steering: real and load-bearing** — purging an oligarchy down to a junta was a
+   winning human line on day one. *Watch-item for Phase 4:* shrinking W looks strong
+   (cheaper politics, only instability windows as the price). The full game must make
+   coup insurance and the excluded seats' clients cost more, or purge-down becomes the
+   universal opener.
+5. **The war dial forces real budget pain** — planet counts swung 2–7 across runs.
+6. **Fun: 16 voluntary games** including replays of lost scenarios. Passed.
+
+**Carried forward:** the purge-down dominance watch-item (Phase 4, issue for the
+selectorate build); franchise-spam watch-item from §11.a finding 4; election events vs
+continuous checks (GDD open question 7) untouched by design — v0.1's continuous check
+was fine at this fidelity.
