@@ -249,12 +249,23 @@ fill in:
 
   ```text
   2026-07-08  Spindle vs Wide Line | ctrl=Blue | winner=Blue (spindle) | turn=6 | strength 12-16 | losses 4-5
+  2026-07-08  Spindle vs Wide Line | ctrl=Blue | winner=Red (line)     | turn=5 | strength 14-19 | losses 5-4
+  2026-07-08  Spindle vs Wide Line | ctrl=Blue | winner=Red (line)     | turn=6 | strength 12-28 | losses 5-0
+  2026-07-08  Spindle vs Wide Line | ctrl=Blue | winner=Blue (spindle) | turn=5 | strength 19-14 | losses 3-5
   ```
-  First human game of the decisive matchup: **the spindle wins in human hands** (AI
-  baseline loses it 26/74). Note the shape of the win — the line had MORE surviving
-  strength (16 v 12) but broke on losses first: a morale/cohesion kill, not an attrition
-  kill. Early evidence that the wheel is **emergent-with-skill**. Needs 2–3 more games
-  (including one loss analysis) before calling question 1 closed.
+  **Human spindle vs line: 2–2** (AI baseline: 26/74). Human maneuver roughly doubles
+  the spindle's odds — the matchup is *competitive with skill*, not dominant. One loss
+  was total (5–0): misplay the approach and the wedge gets shot apart before contact.
+
+  **Winning tactic (player report):** don't pierce the center — attack the *edge* of the
+  line, keep the flagship protected, and bait the AI's units into converging so they
+  stack up and **mask their own lines of fire**. Local superiority at one end + LOS
+  self-blocking beats the line's width. Notably this is defeat-in-detail against a wing,
+  not the classic center punch — and it works with zero formation modifiers.
+
+  Interpretation for question 1: the wheel is **soft/emergent** — formations create real
+  and different problems, skill decides. First wins over the AI came only after learning
+  the trick (games 2–3 were losses), which is the skill curve we want.
 - [ ] Verdict on **open question 1** (emergent wheel vs. need for modifiers)
 - [ ] Recommended number tweaks for battle-rules v0.2
 - [ ] Verdict on **squadron count** feel (open question 3 — needs a v0.2 page option
