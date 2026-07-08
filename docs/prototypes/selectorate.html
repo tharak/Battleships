@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Successor Stars — The Selectorate Game v0.1</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131826; --panel2:#1a2133; --line:#2a3350;
+    --text:#d7deef; --dim:#8892ab; --blue:#4a9eff; --red:#ff5a5a;
+    --gold:#ffd166; --green:#4cd97b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  h1{font-size:20px;margin:0 0 4px}
+  a{color:var(--blue)}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+         border-radius:6px;padding:6px 12px;cursor:pointer;font:inherit}
+  button:hover:not(:disabled){border-color:var(--blue)}
+  button:disabled{opacity:.35;cursor:default}
+  button.primary{background:#1d3a63;border-color:var(--blue)}
+  button.sel{background:#3a2f14;border-color:var(--gold)}
+  .wrap{max-width:1280px;margin:0 auto;padding:14px}
+  #menu .scenario{display:block;width:100%;text-align:left;margin:6px 0;padding:10px 14px}
+  #menu .scenario b{color:var(--gold)}
+  #menu .scenario span{color:var(--dim);display:block;font-size:13px}
+  .opts{display:flex;gap:18px;flex-wrap:wrap;background:var(--panel);
+        border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:10px 0}
+  .opts label{cursor:pointer}
+  #game{display:none}
+  .cols{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+  #left{flex:1 1 560px;min-width:480px}
+  #side{width:380px;min-width:320px;flex:0 0 auto}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+         padding:10px 12px;margin-bottom:10px}
+  .panel h3{margin:0 0 8px;font-size:13px;color:var(--gold);text-transform:uppercase;
+            letter-spacing:.06em}
+  #seats{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+  .seat{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+        padding:8px 10px;font-size:12.5px}
+  .seat.unhappy{border-color:var(--red)}
+  .seat .nm{font-weight:700}
+  .seat .kd{color:var(--dim);font-size:11px}
+  .bar{height:8px;background:#0b0e14;border-radius:4px;margin-top:6px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:4px}
+  .track{position:relative;height:22px;background:#0b0e14;border-radius:5px;margin:4px 0 2px}
+  .track .fill{position:absolute;top:0;left:0;bottom:0;border-radius:5px}
+  .track .mark{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--dim);opacity:.6}
+  .track .pin{position:absolute;top:1px;bottom:1px;width:4px;background:#fff;border-radius:2px}
+  .tlabel{display:flex;justify-content:space-between;color:var(--dim);font-size:11.5px}
+  .stat{display:inline-block;margin-right:14px}
+  .stat b{color:var(--gold)}
+  .budget{margin:10px 0}
+  .budget label{display:flex;justify-content:space-between;font-size:13px}
+  .budget input[type=range]{width:100%}
+  .hint{color:var(--dim);font-size:12px;min-height:15px}
+  #actions button{margin:2px 4px 2px 0;font-size:12.5px;padding:4px 9px}
+  #log{height:230px;overflow-y:auto;font-size:12.5px;
+       font-family:ui-monospace,Menlo,Consolas,monospace}
+  #log .t{color:var(--gold)} #log .bad{color:#ff9a7a} #log .good{color:var(--green)}
+  #log div{margin:1px 0}
+  details{margin-top:8px} summary{cursor:pointer;color:var(--gold)}
+  table{border-collapse:collapse;font-size:12.5px;margin:6px 0}
+  td,th{border:1px solid var(--line);padding:3px 8px;text-align:left}
+  #overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;
+           justify-content:center}
+  #overlay .card{background:var(--panel);border:1px solid var(--gold);border-radius:10px;
+                 padding:24px 30px;max-width:540px;text-align:center}
+  #overlay h1{color:var(--gold)}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:4px;
+       padding:0 6px;color:var(--dim);font-size:12px;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================= MENU ================= -->
+  <div id="menu">
+    <h1>Successor Stars — the selectorate game <span class="tag">v0.1</span></h1>
+    <p style="color:var(--dim);max-width:74ch">Digital playtest of the political rules
+    (<a href="https://github.com/tharak/Battleships/blob/main/docs/prototypes/selectorate-game.md">docs/prototypes/selectorate-game.md</a>,
+    GDD §4.5). You are the ruler: split the budget between the <b>war</b>, your
+    <b>cronies</b>, and the <b>people</b> — and survive 12 years. The theory's whole
+    asymmetry is one division (private goods ÷ W) and one ratio (loyalty = S ÷ W); no
+    modifiers. Pick a regime:</p>
+    <div class="opts">
+      <b>Mode:</b>
+      <label><input type="radio" name="mode" value="play" checked> Play (you govern)</label>
+      <label><input type="radio" name="mode" value="watch"> Watch an advisor govern:</label>
+      <select id="advpick">
+        <option value="adaptive" selected>Adaptive (pays whoever the regime shape says)</option>
+        <option value="autocrat">Autocrat doctrine (high tax, private goods)</option>
+        <option value="democrat">Democrat doctrine (low tax, public goods)</option>
+      </select>
+    </div>
+    <div id="scenlist"></div>
+  </div>
+
+  <!-- ================= GAME ================= -->
+  <div id="game">
+    <div class="cols">
+      <div id="left">
+        <div class="panel" id="status"></div>
+        <div class="panel">
+          <h3>The war front <span id="frontnum" style="color:var(--text)"></span></h3>
+          <div class="track" id="fronttrack"></div>
+          <div class="tlabel"><span>0 — victory grounds (≤4: take a planet)</span>
+            <span>(≥14: lose a planet) — collapse 20</span></div>
+        </div>
+        <div class="panel">
+          <h3>Populace grievance <span id="grievnum" style="color:var(--text)"></span></h3>
+          <div class="track" id="grievtrack"></div>
+          <div class="tlabel"><span>0 — content</span><span>60 unrest · 80 revolt — 100</span></div>
+        </div>
+        <div class="panel">
+          <h3>Your coalition — <span id="coalinfo" style="color:var(--text)"></span></h3>
+          <div id="seats"></div>
+        </div>
+        <div class="panel"><div id="log"></div></div>
+      </div>
+
+      <div id="side">
+        <div class="panel">
+          <h3>Tax</h3>
+          <div id="taxpick">
+            <label><input type="radio" name="tax" value="low"> Low (×0.8)</label>
+            <label><input type="radio" name="tax" value="medium" checked> Medium (×1.0)</label>
+            <label><input type="radio" name="tax" value="high"> High (×1.3)</label>
+          </div>
+          <div class="hint" id="taxhint"></div>
+        </div>
+        <div class="panel">
+          <h3>Budget <span id="budgetinfo" style="color:var(--text)"></span></h3>
+          <div class="budget"><label>⚔ Military <b id="vmil">0</b></label>
+            <input type="range" id="smil" min="0" max="10" step="0.5" value="0">
+            <div class="hint" id="hmil"></div></div>
+          <div class="budget"><label>👑 Private goods <b id="vpriv">0</b></label>
+            <input type="range" id="spriv" min="0" max="10" step="0.5" value="0">
+            <div class="hint" id="hpriv"></div></div>
+          <div class="budget"><label>🏥 Public goods <b id="vpub">0</b></label>
+            <input type="range" id="spub" min="0" max="10" step="0.5" value="0">
+            <div class="hint" id="hpub"></div></div>
+          <div class="hint" id="hleft"></div>
+        </div>
+        <div class="panel">
+          <h3>Regime action (one per turn)</h3>
+          <div id="actions">
+            <button data-act="none" class="sel">None</button>
+            <button data-act="purge">Purge</button>
+            <button data-act="broaden">Broaden</button>
+            <button data-act="expand">Expand franchise</button>
+            <button data-act="restrict">Restrict franchise</button>
+          </div>
+          <div class="hint" id="hact"></div>
+        </div>
+        <div class="panel" style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="btnEnd" class="primary">End turn ▶</button>
+          <button id="btnStep" style="display:none">Step</button>
+          <button id="btnAuto" style="display:none">Auto ▶</button>
+          <button id="btnMenu">Menu</button>
+          <button id="btnRestart">Restart</button>
+        </div>
+        <details class="panel"><summary>Rules crib sheet</summary>
+          <div style="font-size:12.5px;color:var(--dim)">
+          Revenue = planets × 2 × tax. Tax grievance +0/+2/+5; bloc anger −0/−1/−3.<br>
+          War: pressure 1d3 + turn÷4 (+1 in revolt) vs 0.6×military×skim + 0.15×public
+          (max 1.5). Skim = 1 − 0.06 per individual seat. Front ≥14: planet lost
+          (−2 revenue, −10 every seat, grievance +10). ≤4: planet taken.<br>
+          Seats: drift −3/turn. Individuals: +8×(private÷W − 1.0). Blocs: +6×(public−4)÷4,
+          −4 on reverses (front +2). Satisfied at 50+.<br>
+          Grievance: +1/turn, −1.2×public. 60+: −1 revenue. 80+: −2 and front pressure +1.<br>
+          <b>Loyalty = min(1, S% ÷ 10W).</b> Crisis when satisfied seats &lt; 50%
+          (+10pp for 2 turns after any regime action or failed plot): dissatisfied seats
+          move with chance anger×(1−loyalty) — but <b>blocs ignore loyalty</b> (voting
+          is free). Movers outnumber the rest → you're gone. Failed plot: ringleader
+          purged, the rest bought off (+10).<br>
+          Survive 12 turns to win. Score = treasury + 5×planets + (20 − front).</div>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="overlay"><div class="card">
+  <h1 id="ovTitle"></h1><p id="ovBody"></p>
+  <p id="ovResult" style="font-family:ui-monospace,monospace;font-size:12.5px;color:var(--dim)"></p>
+  <button id="ovCopy">Copy result line</button>
+  <button id="ovAgain" class="primary">Play again</button>
+  <button id="ovMenu">Menu</button>
+</div></div>
+
+<script>
+"use strict";
+/* ============ constants (mirror prototypes/selectorate_sim.py exactly) ============ */
+const TURNS=12, SAT_START=60, SAT_LINE=50, DRIFT=-3, APPETITE=1.0, IND_GAIN=8,
+      BLOC_NEED=4.0, BLOC_GAIN=6, SAT_CLAMP=12,
+      THRESHOLD=0.50, INSTAB_BONUS=0.10, INSTAB_TURNS=2, PLOT_BASE=1.0,
+      BASE_PLANETS=5, REV_PER_PLANET=2,
+      FRONT_START=10, FRONT_MAX=20, FRONT_LOSE=14, FRONT_WIN=4,
+      MIL_EFF=0.6, SKIM=0.06, MORALE=0.15, MORALE_CAP=1.5, CASUALTY_REVERSE=2,
+      GRIEV_START=30, GRIEV_NATURE=1, GRIEV_PUB=1.2, GRIEV_UNREST=60, GRIEV_REVOLT=80,
+      PLANET_LOSS_SAT=-10, PLANET_LOSS_GRIEV=10, CASUALTY_BLOC_SAT=-4,
+      PURGE_LOOT=2, PURGE_PANIC=-5, BROADEN_SAT=-5, NEW_SEAT_SAT=55, FRANCHISE_STEP=0.15;
+const TAX={low:[0.8,0],medium:[1.0,2],high:[1.3,5]};
+const TAX_BLOC_ANGER={low:0,medium:1,high:3};
+
+const IND_NAMES=["Secret Police Chief","Fleet Admiral","House Varn","Lord Exchequer",
+  "Governor-General","Shipyard Magnate","Guard Commandant","Spymaster",
+  "High Prosecutor","Customs Baron","Court Chamberlain","Archduke's Heir"];
+const BLOC_NAMES=["Colonial Assembly","Veterans' League","Industrial Combines",
+  "Free Press","Agrarian Worlds","Merchant Guilds","Dockworkers' Union",
+  "Frontier Militias","Academy & Temples","Rating Families","Core-World Bourses",
+  "Pensioners' Front"];
+
+const nBlocs=w=>Math.min(w,Math.round(w*(w-3)/9));
+const loyalty=(s,w)=>Math.min(1,(s*100)/(w*10));
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+const d3=()=>1+Math.floor(Math.random()*3);
+
+/* ============ scenarios ============ */
+const SCENARIOS=[
+ {t:"Junta", w:3, s:0.05,
+  n:"Three cronies, 5% selectorate. Cheap to pay, corrupt army, middling loyalty. Sim (autocrat doctrine): 94% survival — if you pay the cronies FIRST."},
+ {t:"Machine state", w:3, s:0.60,
+  n:"Three cronies atop a 60% selectorate — loyalty 1.0, coup-proof. Your only enemies are the escalating war and the ledger."},
+ {t:"Oligarchy", w:6, s:0.30,
+  n:"Six seats, cronies AND blocs. The middle is expensive: both pools want feeding and your loyalty norm is only 0.50. Sim: 89%."},
+ {t:"Aristocratic republic (hard)", w:9, s:0.10,
+  n:"Nine seats, 10% selectorate: your essentials are irreplaceable and they know it. Loyalty 0.11. Sim survival: 17%. Good luck."},
+ {t:"Broad republic", w:12, s:0.85,
+  n:"Twelve bloc seats, 85% franchise. Nobody takes bribes; public goods or the ballot box. Casualties are votes. Sim (democrat doctrine): 90%."},
+ {t:"Random draw", w:0, s:0,
+  n:"W 3–12, S 5–85%, drawn fresh — the balanced-random-starts preview. Read your regime before you touch the sliders."},
+];
+
+/* ============ game state (port of Game in selectorate_sim.py) ============ */
+let G=null, scen=null, mode="play", advisor="adaptive", chosenAction=null, autoTimer=null;
+
+function newGame(){
+  const w = scen.w || 3+Math.floor(Math.random()*10);
+  const s = scen.w ? scen.s : +(0.05+Math.random()*0.80).toFixed(2);
+  const blocs=nBlocs(w);
+  let bi=0, ii=0;
+  const seats=[];
+  for(let i=0;i<w;i++){
+    const kind=i<blocs?"bloc":"ind";
+    seats.push({kind, sat:SAT_START,
+      name:kind==="bloc"?BLOC_NAMES[bi++%12]:IND_NAMES[ii++%12]});
+  }
+  G={w0:w, s, seats, instability:0,
+     planets:BASE_PLANETS, front:FRONT_START, grievance:GRIEV_START,
+     treasury:5, turn:0, over:false, result:null};
+  chosenAction=null;
+  logEl.innerHTML="";
+  log(`${scen.t} — W=${w} seats (${blocs} blocs), S=${Math.round(s*100)}%, loyalty ${loyalty(s,w).toFixed(2)}`,"t");
+  log(`Survive ${TURNS} years. The war escalates. Your coalition drifts −3 a year. Govern.`);
+  syncControls();
+  render();
+}
+const W=()=>G.seats.length;
+const support=()=>G.seats.length?G.seats.filter(x=>x.sat>=SAT_LINE).length/G.seats.length:0;
+const effThreshold=()=>THRESHOLD+(G.instability>0?INSTAB_BONUS:0);
+function revenue(tax){
+  let rev=G.planets*REV_PER_PLANET*TAX[tax][0];
+  if(G.grievance>=GRIEV_REVOLT) rev-=2;
+  else if(G.grievance>=GRIEV_UNREST) rev-=1;
+  return Math.max(0,rev);
+}
+function doAction(action){
+  if(!action) return;
+  if(action==="purge"&&W()>3){
+    const v=G.seats.reduce((a,x)=>x.sat<a.sat?x:a);
+    G.seats.splice(G.seats.indexOf(v),1);
+    G.treasury+=PURGE_LOOT;
+    log(`PURGE: ${v.name} is removed (loot +${PURGE_LOOT}).`,"bad");
+    if(v.sat>=SAT_LINE){
+      for(const x of G.seats) x.sat=Math.max(0,x.sat+PURGE_PANIC);
+      log(`  purging the loyal panics the table: every seat ${PURGE_PANIC}`,"bad");
+    }
+    G.instability=INSTAB_TURNS;
+  }else if(action==="broaden"&&W()<12){
+    for(const x of G.seats) x.sat=Math.max(0,x.sat+BROADEN_SAT);
+    const want=nBlocs(W()+1), have=G.seats.filter(x=>x.kind==="bloc").length;
+    const kind=have<want?"bloc":"ind";
+    const used=G.seats.map(x=>x.name);
+    const pool=(kind==="bloc"?BLOC_NAMES:IND_NAMES).filter(n=>!used.includes(n));
+    G.seats.push({kind, sat:NEW_SEAT_SAT, name:pool[0]||"New Seat"});
+    log(`BROADEN: ${G.seats[G.seats.length-1].name} joins the coalition; every old seat ${BROADEN_SAT}.`);
+    G.instability=INSTAB_TURNS;
+  }else if(action==="expand"){
+    G.s=Math.min(1,G.s+FRANCHISE_STEP);
+    G.grievance=Math.max(0,G.grievance-5);
+    log(`EXPAND FRANCHISE: S → ${Math.round(G.s*100)}% (loyalty ${loyalty(G.s,W()).toFixed(2)}), grievance −5.`);
+    G.instability=INSTAB_TURNS;
+  }else if(action==="restrict"){
+    G.s=Math.max(0.02,G.s-FRANCHISE_STEP);
+    G.grievance+=10;
+    log(`RESTRICT FRANCHISE: S → ${Math.round(G.s*100)}% (loyalty ${loyalty(G.s,W()).toFixed(2)}), grievance +10.`,"bad");
+    G.instability=INSTAB_TURNS;
+  }
+}
+function step(d){
+  if(G.over) return;
+  G.turn++;
+  log(`— Year ${G.turn} —`,"t");
+  doAction(d.action);
+
+  let rev=revenue(d.tax);
+  let mil=d.mil, priv=d.priv, pub=d.pub;
+  let spend=mil+priv+pub;
+  const budget=rev+G.treasury;
+  if(spend>budget){
+    const k=spend?budget/spend:0;
+    mil*=k;priv*=k;pub*=k;spend=budget;
+  }
+  G.treasury=budget-spend;
+  log(`Tax ${d.tax}: revenue ${rev.toFixed(1)} · spend ⚔${mil.toFixed(1)} 👑${priv.toFixed(1)} 🏥${pub.toFixed(1)} · treasury ${G.treasury.toFixed(1)}`);
+
+  // war
+  const pressure=d3()+Math.floor(G.turn/4)+(G.grievance>=GRIEV_REVOLT?1:0);
+  const nInd=G.seats.filter(x=>x.kind==="ind").length;
+  const skim=Math.max(0.5,1-SKIM*nInd);
+  const effect=MIL_EFF*mil*skim+Math.min(MORALE_CAP,MORALE*pub);
+  const frontBefore=G.front;
+  G.front=clamp(G.front+pressure-effect,0,FRONT_MAX);
+  log(`War: pressure ${pressure} vs pushback ${effect.toFixed(1)}${skim<1?` (skim ×${skim.toFixed(2)})`:""} → front ${G.front.toFixed(1)}`,
+      G.front>frontBefore?"bad":"good");
+  let lostPlanet=false;
+  if(G.front>=FRONT_LOSE){
+    G.planets--; lostPlanet=true; G.front-=4; G.grievance+=PLANET_LOSS_GRIEV;
+    log(`A PLANET FALLS — ${G.planets} left. Revenue −2, every seat −10, grievance +10.`,"bad");
+    if(G.planets<=0){ gameOver("conquered"); return; }
+  }else if(G.front<=FRONT_WIN&&G.planets<BASE_PLANETS+2){
+    G.planets++; G.front+=4;
+    log(`BREAKTHROUGH — an enemy planet taken (${G.planets} held). The line stretches.`,"good");
+  }
+
+  // seats
+  const share=W()?priv/W():0;
+  for(const x of G.seats){
+    let delta=DRIFT;
+    if(x.kind==="ind"){
+      delta+=clamp(IND_GAIN*(share-APPETITE),-SAT_CLAMP,SAT_CLAMP);
+    }else{
+      delta+=clamp(BLOC_GAIN*(pub-BLOC_NEED)/BLOC_NEED,-SAT_CLAMP,SAT_CLAMP);
+      delta-=TAX_BLOC_ANGER[d.tax];
+      if(G.front-frontBefore>=CASUALTY_REVERSE) delta+=CASUALTY_BLOC_SAT;
+    }
+    if(lostPlanet) delta+=PLANET_LOSS_SAT;
+    x.sat=clamp(x.sat+delta,0,100);
+  }
+
+  // populace
+  G.grievance=clamp(G.grievance+GRIEV_NATURE+TAX[d.tax][1]-GRIEV_PUB*pub,0,100);
+
+  // removal crisis
+  if(G.instability>0) G.instability--;
+  if(support()<effThreshold()){
+    const loy=loyalty(G.s,W());
+    let plotters=[], loyal=0;
+    for(const x of G.seats){
+      const anger=(SAT_LINE-x.sat)/SAT_LINE;
+      const p=x.kind==="bloc"?anger:(1-loy)*anger;
+      if(x.sat<SAT_LINE&&Math.random()<PLOT_BASE*p) plotters.push(x);
+      else loyal++;
+    }
+    log(`REMOVAL CRISIS — support ${Math.round(100*support())}% < ${Math.round(100*effThreshold())}%: ${plotters.length} move against you, ${loyal} stand by.`,"bad");
+    if(plotters.length>loyal){
+      gameOver(nBlocs(W())>W()/2?"voted_out":"coup"); return;
+    }
+    if(plotters.length){ // ringleader = angriest dissatisfied seat, plotter or not
+      const v=G.seats.filter(x=>x.sat<SAT_LINE).reduce((a,x)=>x.sat<a.sat?x:a);
+      G.seats.splice(G.seats.indexOf(v),1);
+      for(const x of G.seats) if(x.sat<SAT_LINE) x.sat=Math.min(100,x.sat+10);
+      G.instability=INSTAB_TURNS;
+      log(`The plot fails: ${v.name} is purged, the rest are bought off (+10). Instability follows.`,"good");
+      if(W()<3){ gameOver("coup"); return; }
+    }
+  }
+
+  if(G.turn>=TURNS){ gameOver("survived"); return; }
+  syncControls();
+  render();
+}
+const score=()=>Math.round(G.treasury+G.planets*5+(FRONT_MAX-G.front));
+
+/* ============ advisors (port of sim strategies) ============ */
+function holdFrontMil(g,pubPlanned){
+  const expected=2.2+Math.floor((g.turn+1)/4);
+  const nInd=g.seats.filter(x=>x.kind==="ind").length;
+  const skim=Math.max(0.5,1-SKIM*nInd);
+  const need=expected-Math.min(MORALE_CAP,MORALE*pubPlanned);
+  return Math.max(0,need/(MIL_EFF*skim)+(g.front-FRONT_START)*0.15);
+}
+const ADVISORS={
+  autocrat(g){
+    const rev=revenue("high")+Math.min(g.treasury,2);
+    const priv=Math.min(rev,W()*(APPETITE+0.3));
+    const mil=Math.min(rev-priv,holdFrontMil(g,0));
+    return {tax:"high",mil,priv,pub:0,action:W()>3?"purge":null};
+  },
+  democrat(g){
+    const rev=revenue("low")+Math.min(g.treasury,2);
+    const pub=Math.min(rev,BLOC_NEED+1.5);
+    const mil=Math.min(rev-pub,holdFrontMil(g,pub));
+    return {tax:"low",mil,priv:0,pub,action:W()<12?"broaden":null};
+  },
+  adaptive(g){
+    const inds=g.seats.filter(x=>x.kind==="ind").length;
+    const blocs=W()-inds;
+    const rev=revenue("medium")+Math.min(g.treasury,3);
+    const wantPriv=inds?W()*(APPETITE+0.3):0;
+    const wantPub=blocs?BLOC_NEED+1.0:0;
+    const mil=Math.min(rev,holdFrontMil(g,wantPub));
+    const rest=rev-mil;
+    let priv=0,pub=0;
+    if(wantPriv+wantPub<=rest){priv=wantPriv;pub=wantPub;}
+    else if(wantPriv+wantPub>0){
+      const k=rest/(wantPriv+wantPub);
+      priv=wantPriv*k;pub=wantPub*k;
+    }
+    return {tax:"medium",mil,priv,pub,action:null};
+  },
+};
+
+/* ============ rendering ============ */
+const logEl=document.getElementById("log");
+function log(msg,cls){
+  const d=document.createElement("div");
+  if(cls)d.className=cls;
+  d.textContent=msg;
+  logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;
+}
+function track(el,val,max,marks,color){
+  el.innerHTML="";
+  const fill=document.createElement("div");
+  fill.className="fill";fill.style.width=(100*val/max)+"%";fill.style.background=color;
+  el.appendChild(fill);
+  for(const m of marks){
+    const k=document.createElement("div");
+    k.className="mark";k.style.left=(100*m/max)+"%";el.appendChild(k);
+  }
+  const pin=document.createElement("div");
+  pin.className="pin";pin.style.left=`calc(${100*val/max}% - 2px)`;el.appendChild(pin);
+}
+function render(){
+  if(!G)return;
+  const loy=loyalty(G.s,W());
+  document.getElementById("status").innerHTML=
+    `<span class="stat">Year <b>${Math.min(G.turn+1,TURNS)}/${TURNS}</b></span>`+
+    `<span class="stat">Treasury <b>${G.treasury.toFixed(1)}</b></span>`+
+    `<span class="stat">Planets <b>${G.planets}</b></span>`+
+    `<span class="stat">W <b>${W()}</b> · S <b>${Math.round(G.s*100)}%</b></span>`+
+    `<span class="stat">Loyalty <b>${loy.toFixed(2)}</b></span>`+
+    `<span class="stat">Crisis below <b>${Math.round(100*effThreshold())}%</b>${G.instability>0?" ⚠ instability":""}</span>`;
+  document.getElementById("frontnum").textContent=`— ${G.front.toFixed(1)} / 20`;
+  track(document.getElementById("fronttrack"),G.front,FRONT_MAX,[FRONT_WIN,FRONT_LOSE],
+        G.front>=FRONT_LOSE-2?"#7a2626":G.front<=FRONT_WIN+2?"#1d4a2c":"#3a3350");
+  document.getElementById("grievnum").textContent=`— ${G.grievance.toFixed(0)} / 100`;
+  track(document.getElementById("grievtrack"),G.grievance,100,[GRIEV_UNREST,GRIEV_REVOLT],
+        G.grievance>=GRIEV_REVOLT?"#7a2626":G.grievance>=GRIEV_UNREST?"#6b5518":"#3a3350");
+  const sup=Math.round(100*support());
+  document.getElementById("coalinfo").textContent=
+    `${G.seats.filter(x=>x.sat>=SAT_LINE).length}/${W()} satisfied (${sup}%)`;
+  const seatsEl=document.getElementById("seats");
+  seatsEl.innerHTML="";
+  for(const x of G.seats){
+    const d=document.createElement("div");
+    d.className="seat"+(x.sat<SAT_LINE?" unhappy":"");
+    const col=x.sat>=65?"#4cd97b":x.sat>=SAT_LINE?"#ffd166":"#ff5a5a";
+    d.innerHTML=`<div class="nm">${x.kind==="bloc"?"⚑":"♟"} ${x.name}</div>`+
+      `<div class="kd">${x.kind==="bloc"?"bloc — public goods, hates taxes & casualties":"individual — private goods"}</div>`+
+      `<div class="bar"><i style="width:${x.sat}%;background:${col}"></i></div>`+
+      `<div class="kd">${x.sat.toFixed(0)}/100</div>`;
+    seatsEl.appendChild(d);
+  }
+  updateHints();
+}
+function currentTax(){return document.querySelector('input[name="tax"]:checked').value;}
+function sliders(){return {
+  mil:+document.getElementById("smil").value,
+  priv:+document.getElementById("spriv").value,
+  pub:+document.getElementById("spub").value};}
+function syncControls(){
+  if(!G||mode!=="play")return;
+  const budget=revenue(currentTax())+G.treasury;
+  for(const id of ["smil","spriv","spub"]){
+    const s=document.getElementById(id);
+    s.max=Math.max(1,Math.ceil(budget));
+    if(+s.value>budget)s.value=0;
+  }
+}
+function updateHints(){
+  if(!G)return;
+  const tax=currentTax(), rev=revenue(tax), b=sliders();
+  const budget=rev+G.treasury, spend=b.mil+b.priv+b.pub;
+  document.getElementById("vmil").textContent=b.mil.toFixed(1);
+  document.getElementById("vpriv").textContent=b.priv.toFixed(1);
+  document.getElementById("vpub").textContent=b.pub.toFixed(1);
+  document.getElementById("budgetinfo").textContent=
+    `— revenue ${rev.toFixed(1)} + treasury ${G.treasury.toFixed(1)}`;
+  document.getElementById("taxhint").textContent=
+    `grievance +${TAX[tax][1]}/yr · bloc seats −${TAX_BLOC_ANGER[tax]}/yr`+
+    (G.grievance>=GRIEV_UNREST?` · UNREST is already costing revenue`:``);
+  const nInd=G.seats.filter(x=>x.kind==="ind").length;
+  const skim=Math.max(0.5,1-SKIM*nInd);
+  const effect=MIL_EFF*b.mil*skim+Math.min(MORALE_CAP,MORALE*b.pub);
+  const expected=2+Math.floor((G.turn+1)/4)+(G.grievance>=GRIEV_REVOLT?1:0);
+  document.getElementById("hmil").textContent=
+    `pushback ≈ ${effect.toFixed(1)} vs expected pressure ≈ ${expected}`+
+    (skim<1?` (cronies skim ${Math.round((1-skim)*100)}%)`:"");
+  const share=W()?b.priv/W():0, inds=nInd>0;
+  document.getElementById("hpriv").textContent= inds
+    ? `share/seat ${share.toFixed(2)} vs appetite 1.0 → individuals ${(clamp(IND_GAIN*(share-APPETITE),-SAT_CLAMP,SAT_CLAMP)+DRIFT>=0?"+":"")}${(clamp(IND_GAIN*(share-APPETITE),-SAT_CLAMP,SAT_CLAMP)+DRIFT).toFixed(1)}/yr`
+    : `no individual seats — private goods are pure waste here`;
+  const blocs=W()-nInd;
+  document.getElementById("hpub").textContent= blocs>0
+    ? `blocs ${(clamp(BLOC_GAIN*(b.pub-BLOC_NEED)/BLOC_NEED,-SAT_CLAMP,SAT_CLAMP)+DRIFT-TAX_BLOC_ANGER[tax]>=0?"+":"")}${(clamp(BLOC_GAIN*(b.pub-BLOC_NEED)/BLOC_NEED,-SAT_CLAMP,SAT_CLAMP)+DRIFT-TAX_BLOC_ANGER[tax]).toFixed(1)}/yr · grievance −${(GRIEV_PUB*b.pub).toFixed(1)} · morale +${Math.min(MORALE_CAP,MORALE*b.pub).toFixed(1)}`
+    : `no bloc seats — buys quiet streets (grievance −${(GRIEV_PUB*b.pub).toFixed(1)}) and morale +${Math.min(MORALE_CAP,MORALE*b.pub).toFixed(1)}`;
+  const left=budget-spend;
+  document.getElementById("hleft").textContent=
+    left<-0.01?`OVERSPENT by ${(-left).toFixed(1)} — spending will be scaled down`
+              :`unspent ${left.toFixed(1)} banks to treasury`;
+  document.getElementById("hact").textContent=
+    chosenAction?`${chosenAction} — opens a 2-turn instability window (crisis line 60%)`
+                :"no action this turn";
+}
+
+/* ============ game over ============ */
+function gameOver(result){
+  G.over=true;G.result=result;
+  const titles={survived:"You survived",coup:"COUP — you are removed",
+    voted_out:"VOTED OUT — the coalition abandons you",conquered:"CONQUERED — the war is lost"};
+  const bodies={
+    survived:`Twelve years in power. Final score ${score()} (treasury ${G.treasury.toFixed(0)}, ${G.planets} planets, front ${G.front.toFixed(0)}).`,
+    coup:`In year ${G.turn}, your own coalition moves against you. There is a new ruler by morning.`,
+    voted_out:`In year ${G.turn}, the blocs put someone else behind the desk. The state continues without you.`,
+    conquered:`In year ${G.turn}, the last planet falls. There is nothing left to rule.`};
+  const result_line=`${scen.t} | mode=${mode==="play"?"play":"watch:"+advisor} | `+
+    `result=${result} | turns=${G.turn} | score=${result==="survived"?score():0} | `+
+    `W=${W()} S=${Math.round(G.s*100)}% | planets=${G.planets} front=${G.front.toFixed(0)} grievance=${G.grievance.toFixed(0)}`;
+  log(`GAME OVER — ${titles[result]}`,"t");
+  document.getElementById("ovTitle").textContent=titles[result];
+  document.getElementById("ovBody").textContent=bodies[result];
+  document.getElementById("ovResult").textContent=result_line;
+  document.getElementById("overlay").style.display="flex";
+  render();
+}
+
+/* ============ wiring ============ */
+function buildMenu(){
+  const el=document.getElementById("scenlist");
+  SCENARIOS.forEach((s,i)=>{
+    const b=document.createElement("button");
+    b.className="scenario";
+    b.innerHTML=`<b>${i+1}. ${s.t}</b><span>${s.n}</span>`;
+    b.onclick=()=>{
+      scen=s;
+      mode=document.querySelector('input[name="mode"]:checked').value;
+      advisor=document.getElementById("advpick").value;
+      document.getElementById("menu").style.display="none";
+      document.getElementById("game").style.display="block";
+      const watch=mode==="watch";
+      document.getElementById("btnEnd").style.display=watch?"none":"";
+      document.getElementById("btnStep").style.display=watch?"":"none";
+      document.getElementById("btnAuto").style.display=watch?"":"none";
+      for(const inp of document.querySelectorAll('#taxpick input, .budget input'))
+        inp.disabled=watch;
+      newGame();
+    };
+    el.appendChild(b);
+  });
+}
+function humanTurn(){
+  if(!G||G.over)return;
+  const b=sliders();
+  step({tax:currentTax(),mil:b.mil,priv:b.priv,pub:b.pub,action:chosenAction});
+  chosenAction=null;
+  for(const btn of document.querySelectorAll("#actions button"))
+    btn.classList.toggle("sel",btn.dataset.act==="none");
+  updateHints();
+}
+function advisorTurn(){
+  if(!G||G.over)return;
+  const d=ADVISORS[advisor](G);
+  // reflect the advisor's choice in the UI so you can read its play
+  document.querySelector(`input[name="tax"][value="${d.tax}"]`).checked=true;
+  document.getElementById("smil").value=d.mil.toFixed(1);
+  document.getElementById("spriv").value=d.priv.toFixed(1);
+  document.getElementById("spub").value=d.pub.toFixed(1);
+  step({tax:d.tax,mil:d.mil,priv:d.priv,pub:d.pub,action:d.action});
+}
+document.getElementById("btnEnd").onclick=humanTurn;
+document.getElementById("btnStep").onclick=advisorTurn;
+document.getElementById("btnAuto").onclick=function(){
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;this.textContent="Auto ▶";return;}
+  this.textContent="Auto ⏸";
+  autoTimer=setInterval(()=>{
+    if(!G||G.over){clearInterval(autoTimer);autoTimer=null;
+      document.getElementById("btnAuto").textContent="Auto ▶";}
+    else advisorTurn();
+  },700);
+};
+for(const btn of document.querySelectorAll("#actions button")){
+  btn.onclick=()=>{
+    if(mode!=="play")return;
+    chosenAction=btn.dataset.act==="none"?null:btn.dataset.act;
+    for(const b of document.querySelectorAll("#actions button"))
+      b.classList.toggle("sel",b===btn);
+    updateHints();
+  };
+}
+for(const inp of document.querySelectorAll('#taxpick input'))
+  inp.onchange=()=>{syncControls();updateHints();};
+for(const id of ["smil","spriv","spub"])
+  document.getElementById(id).oninput=updateHints;
+function toMenu(){
+  closeOv();
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;
+    document.getElementById("btnAuto").textContent="Auto ▶";}
+  G=null;
+  document.getElementById("game").style.display="none";
+  document.getElementById("menu").style.display="block";
+}
+function closeOv(){document.getElementById("overlay").style.display="none";}
+document.getElementById("btnMenu").onclick=toMenu;
+document.getElementById("btnRestart").onclick=()=>{closeOv();newGame();};
+document.getElementById("ovAgain").onclick=()=>{closeOv();newGame();};
+document.getElementById("ovMenu").onclick=toMenu;
+document.getElementById("ovCopy").onclick=()=>{
+  navigator.clipboard&&navigator.clipboard.writeText(
+    document.getElementById("ovResult").textContent);
+};
+buildMenu();
+</script>
+</body>
+</html>

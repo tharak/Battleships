@@ -11,6 +11,9 @@ you stay in power by keeping your essentials satisfied — or you don't stay in 
 🎮 **[Playable battle prototype](https://tharak.github.io/Battleships/prototypes/battle.html)** —
 hex battle testbed for the formation/facing/morale rules (Phase 0, issue #1).
 
+🏛 **[Playable selectorate prototype](https://tharak.github.io/Battleships/prototypes/selectorate.html)** —
+politics testbed: budget, seats, loyalty norm, removal crises (Phase 0, issue #2).
+
 📄 **[Game Design Document](docs/GAME_DESIGN.md)** — vision, mechanics, and the phased
 solo-dev roadmap. Currently at Phase 0 (design & rules prototyping).
 
