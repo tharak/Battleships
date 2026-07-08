@@ -266,6 +266,21 @@ fill in:
   Interpretation for question 1: the wheel is **soft/emergent** — formations create real
   and different problems, skill decides. First wins over the AI came only after learning
   the trick (games 2–3 were losses), which is the skill curve we want.
+
+  ```text
+  2026-07-08  Spindle vs Wide Line | ctrl=Blue | winner=Blue (spindle) | turn=4 | strength 21-15 | losses 3-5
+  ```
+  3–2. **Player diagnosis of the AI's real weakness: the flagship charges recklessly.**
+  The AI treats its flagship like any squadron — it homes on the nearest enemy, arrives
+  early, and dies. Winning pattern: hold your own flagship back, let the wings make
+  contact first, then kill the enemy flagship — the fleet-wide morale shock + permanent
+  −1 + loss of the command net turns the battle. Two conclusions:
+  - **Rules:** decapitation is strong *by design* (GDD §5.6) and its counter — flagship
+    positioning — is real, playable, and skill-expressive. No rules change needed.
+  - **AI (feeds issue #11):** Battle AI v1 needs flagship-preservation behavior — keep
+    station behind the engaged line, balance command-radius coverage against exposure,
+    withdraw the flagship under threat. Without it every battle vs the AI collapses
+    into flagship sniping.
 - [ ] Verdict on **open question 1** (emergent wheel vs. need for modifiers)
 - [ ] Recommended number tweaks for battle-rules v0.2
 - [ ] Verdict on **squadron count** feel (open question 3 — needs a v0.2 page option
