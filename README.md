@@ -15,6 +15,23 @@ hex battle testbed for the formation/facing/morale rules (Phase 0, issue #1).
 politics testbed: budget, seats, loyalty norm, removal crises (Phase 0, issue #2).
 
 📄 **[Game Design Document](docs/GAME_DESIGN.md)** — vision, mechanics, and the phased
-solo-dev roadmap. Currently at Phase 0 (design & rules prototyping).
+solo-dev roadmap. Phase 0 (paper prototypes) is complete; Phase 1 (Godot battle
+prototype) is underway.
 
 🗂 **[Development board](https://github.com/users/tharak/projects/6)** · 🌐 **[Project site](https://tharak.github.io/Battleships/)**
+
+## Development
+
+The real engine build lives in `game/` (Godot 4.7, GDScript). Its architecture follows
+GDD §11: the simulation is plain data + systems that runs headless, and **every
+mutation flows through a serialized command stream** — no direct UI-to-sim pokes — so
+the game is multiplayer-ready (deterministic lockstep) from day one.
+
+- **Run the scaffold scene:** `godot --path game` (open the project; `main.tscn` runs
+  automatically) or `godot --path game main.tscn` from the CLI.
+- **Run the determinism test:**
+  `godot --headless --path game --script res://tests/test_determinism.gd` — replays a
+  recorded command stream and checks the resulting state hash against a committed
+  golden fixture (`game/tests/fixtures/`). This runs in CI on every push/PR that
+  touches `game/` ([sim-tests workflow](.github/workflows/sim-tests.yml)).
+- Godot version is pinned in `game/.godot-version`; CI downloads that exact build.
