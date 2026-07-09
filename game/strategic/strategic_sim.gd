@@ -52,9 +52,11 @@ func _apply(cmd: Dictionary) -> void:
 	var a: Dictionary = cmd["a"]
 	match cmd["k"]:
 		"spawn_fleet":
+			var preset: String = a.get("preset", FleetPresets.DEFAULT)
 			state.fleets[a["id"]] = {
 				"side": int(a["side"]), "system": String(a["system"]),
 				"dest": null, "progress": 0.0, "path": [], "supply": 100.0,
+				"preset": preset, "strength": FleetPresets.total_strength(preset),
 			}
 		"order_move":
 			if state.fleets.has(a["id"]):

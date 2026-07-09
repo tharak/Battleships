@@ -7,7 +7,8 @@ class_name StrategicCommands
 ## Shape: {"t": int tick, "k": String kind, "a": Dictionary args}
 ##
 ## Kinds:
-##   spawn_fleet   a: {id, side, system}
+##   spawn_fleet   a: {id, side, system, preset (optional, default "line" --
+##                 FleetPresets name, issue #14's battle-seeding roster)}
 ##   order_move    a: {id, path: [system_id, ...]} -- hop sequence to travel,
 ##                 NOT including the fleet's current system (see
 ##                 Galaxy.shortest_path, which already returns it in this form)

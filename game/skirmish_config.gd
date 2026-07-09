@@ -21,3 +21,26 @@ const TERRAIN_NAMES := ["none", "asteroid_flank"]
 static var player_preset := FleetPresets.DEFAULT
 static var enemy_preset := FleetPresets.DEFAULT
 static var terrain_option := "asteroid_flank"
+
+## Issue #14, GDD §5.8: supply-driven tactical modifiers, set by strategic/
+## battle_bridge.gd when a map contact launches a battle. Default 1.0/100.0
+## (no penalty) so the skirmish menu and every existing test — which never
+## touch these — behave exactly as before #14.
+static var player_uptime_mult := 1.0
+static var player_morale_cap := 100.0
+static var enemy_uptime_mult := 1.0
+static var enemy_morale_cap := 100.0
+
+## True only when this battle was launched from a map contact (strategic_map.gd),
+## not the skirmish menu — main.gd's battle-over handling uses this to decide
+## whether to write results back via battle_bridge.gd and return to
+## strategic_map.tscn instead of skirmish_menu.tscn. contact_fleet_ids is
+## [side0_fleet_id, side1_fleet_id] from the contact that triggered this battle.
+static var from_map_contact := false
+static var contact_fleet_ids: Array[String] = []
+
+## Battle -> strategic write-back (main.gd fills these in on battle-over when
+## from_map_contact is true; strategic_map.gd reads and applies them via
+## BattleBridge.apply_result on the next _ready(), then clears from_map_contact).
+static var battle_side0_strength_left := 0
+static var battle_side1_strength_left := 0

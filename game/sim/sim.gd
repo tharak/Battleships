@@ -67,7 +67,7 @@ func _apply(cmd: Dictionary) -> void:
 				"arrive_facing": null,
 				"cohesion": 100.0,
 				"dmg_accum": 0.0,
-				"morale": 100.0,
+				"morale": state.fleets[int(a["side"])]["morale_cap"],
 				"routed": false,
 			}
 		"order_move":
@@ -192,7 +192,10 @@ func _advance_combat(dt: float) -> Array:
 		if not state.squadrons.has(firer_id):
 			continue  # destroyed earlier this same pass
 		var firer: Dictionary = state.squadrons[firer_id]
-		var fire_mult := Morale.fire_multiplier(firer)
+		# Issue #14, GDD §5.8: a starved fleet's weapon uptime is reduced strategic-
+		# side, applied here as a flat multiplier on top of the morale-driven one —
+		# a wavering AND starving squadron gets both penalties, not just the worse one.
+		var fire_mult := Morale.fire_multiplier(firer) * float(state.fleets[firer["side"]]["uptime_mult"])
 		if fire_mult <= 0.0:
 			continue  # routed: cannot fire at all (GDD §5.5)
 		var target_id := Combat.pick_target(firer_id, firer, state.squadrons, state.terrain)
@@ -246,7 +249,7 @@ func _advance_morale(dt: float, combat_events: Array) -> Array:
 			var sq: Dictionary = state.squadrons[id]
 			var in_command := Command.is_in_command(sq["pos"], flagship_pos[sq["side"]])
 			var rate := Command.regen_rate(Morale.MORALE_REGEN, in_command, state.fleets[sq["side"]]["flagship_lost"])
-			Morale.regen(sq, dt, rate)
+			Morale.regen(sq, dt, rate, state.fleets[sq["side"]]["morale_cap"])
 
 	for id in ids:
 		if not state.squadrons.has(id):

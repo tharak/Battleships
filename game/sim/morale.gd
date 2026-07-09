@@ -85,9 +85,11 @@ static func apply_hit(sq: Dictionary, arc: String, strength_lost: int) -> void:
 
 
 ## `rate` defaults to the base regen — sim.gd passes Command.regen_rate's
-## command-radius/flagship-loss-adjusted value instead (issue #8).
-static func regen(sq: Dictionary, dt: float, rate := MORALE_REGEN) -> void:
-	sq["morale"] = minf(100.0, sq["morale"] + rate * dt)
+## command-radius/flagship-loss-adjusted value instead (issue #8). `cap` defaults
+## to the usual 100.0 ceiling — sim.gd passes a starved fleet's lower
+## state.fleets[side]["morale_cap"] instead (issue #14, GDD §5.8).
+static func regen(sq: Dictionary, dt: float, rate := MORALE_REGEN, cap := 100.0) -> void:
+	sq["morale"] = minf(cap, sq["morale"] + rate * dt)
 
 
 ## Returns "routed" if this call is what pushed the squadron into rout, "rallied" if

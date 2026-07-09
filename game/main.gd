@@ -161,6 +161,14 @@ func _ready() -> void:
 	_spawn_scene()
 
 	_sim = Sim.new(SEED)
+	# Issue #14, GDD §5.8: supply-driven tactical modifiers, set by strategic/
+	# battle_bridge.gd for a map-contact battle. Harmless identity values
+	# (1.0/100.0) otherwise, so the skirmish menu and every existing test are
+	# unaffected.
+	_sim.state.fleets[0]["uptime_mult"] = SkirmishConfig.player_uptime_mult
+	_sim.state.fleets[0]["morale_cap"] = SkirmishConfig.player_morale_cap
+	_sim.state.fleets[1]["uptime_mult"] = SkirmishConfig.enemy_uptime_mult
+	_sim.state.fleets[1]["morale_cap"] = SkirmishConfig.enemy_morale_cap
 	_stream.reset_cursor()
 	_enemy_ai = BattleAI.new(1 - PLAYER_SIDE)
 	_update_label()
@@ -413,6 +421,21 @@ func _check_battle_over() -> void:
 	else:
 		_battle_result = "MUTUAL ANNIHILATION — nobody was left standing"
 
+	# Issue #14's battle -> strategic write-back: record survivors so
+	# strategic_map.gd can apply them via BattleBridge.apply_result once we
+	# return there (see the KEY_R handler below).
+	if SkirmishConfig.from_map_contact:
+		var side0_left := 0
+		var side1_left := 0
+		for id in _sim.state.squadrons.keys():
+			var sq: Dictionary = _sim.state.squadrons[id]
+			if sq["side"] == 0:
+				side0_left += sq["strength"]
+			else:
+				side1_left += sq["strength"]
+		SkirmishConfig.battle_side0_strength_left = side0_left
+		SkirmishConfig.battle_side1_strength_left = side1_left
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -463,7 +486,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_3:
 					_paused = false; _speed = 4.0
 				KEY_R:
-					get_tree().change_scene_to_file("res://skirmish_menu.tscn")
+					# A map-contact battle (issue #14) returns to the strategic map,
+					# not the skirmish menu -- there's a campaign in progress to go
+					# back to.
+					if SkirmishConfig.from_map_contact:
+						get_tree().change_scene_to_file("res://strategic_map.tscn")
+					else:
+						get_tree().change_scene_to_file("res://skirmish_menu.tscn")
 
 
 func _finish_left_drag(release_pos: Vector2) -> void:

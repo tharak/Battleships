@@ -16,7 +16,12 @@ class_name StrategicState
 ## (Array[String], remaining hops queued after `dest` — consumed one at a time
 ## as each hop completes, see strategic_sim.gd's _start_next_hop), supply
 ## (float 0-100 — issue #13, GDD §4.4, drained/regenerated each tick by
-## strategic/supply.gd).
+## strategic/supply.gd), preset (String, a FleetPresets name — issue #14's
+## battle-seeding roster, see strategic/battle_bridge.gd), strength (int, this
+## fleet's current total combat strength — starts at FleetPresets.
+## total_strength(preset), updated by battle_bridge.gd's apply_result once a
+## fought battle concludes; a full squadron-by-squadron roster only exists
+## inside a tactical battle, not on the map).
 ##
 ## `system_owner`: id -> side (-1 = neutral/contested), seeded from Galaxy's
 ## static data and (in a later issue) mutated by battle outcomes/invasions —

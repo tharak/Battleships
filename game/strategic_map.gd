@@ -5,9 +5,14 @@ extends Node2D
 ## becomes a StrategicCommand appended to `_stream`, same "no direct UI-to-sim
 ## pokes" discipline as the battle layer's main.gd (GDD §11).
 ##
-## Scope note: issue #12 is movement + time + fog of war only. Two opposing
-## fleets sharing a system don't fight yet (that's issue #14, "battles from map
-## contacts") — nothing special happens if they meet here.
+## Two opposing fleets sharing a system launch a real tactical battle (issue
+## #14): detected each tick via BattleBridge.detect_contact, seeded via
+## BattleBridge.seed_skirmish (fills in SkirmishConfig, same handoff #11 built
+## for the skirmish menu), then a scene change to main.tscn. The live
+## StrategicSim survives that round trip via StrategicSession (a static var,
+## since this scene's own instance — and everything in it — is destroyed by
+## the scene change); returning here re-applies the fought battle's result via
+## BattleBridge.apply_result before resuming.
 ##
 ## Controls:
 ##   left click a fleet marker   select it (only your own, blue/side 0)
@@ -40,10 +45,23 @@ func _ready() -> void:
 	add_child(_label)
 
 	_stream = StrategicCommandStream.new()
-	_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Home Fleet", "side": 0, "system": "A1"}))
-	_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Enemy Fleet", "side": 1, "system": "C1"}))
 
-	_sim = StrategicSim.new()
+	if StrategicSession.sim == null:
+		_sim = StrategicSim.new()
+		StrategicSession.sim = _sim
+		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Home Fleet", "side": 0, "system": "A1", "preset": "line"}))
+		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Enemy Fleet", "side": 1, "system": "C1", "preset": "line"}))
+	else:
+		# Resuming a session already in progress -- either just returning from a
+		# fought battle (apply its result first) or the player used R to bail
+		# back to the map without a contact ever resolving (nothing to apply).
+		_sim = StrategicSession.sim
+		if SkirmishConfig.from_map_contact:
+			var ids := SkirmishConfig.contact_fleet_ids
+			BattleBridge.apply_result(_sim.state, ids[0], ids[1],
+				SkirmishConfig.battle_side0_strength_left, SkirmishConfig.battle_side1_strength_left)
+			SkirmishConfig.from_map_contact = false
+
 	_stream.reset_cursor()
 	_update_label()
 
@@ -55,8 +73,19 @@ func _process(delta: float) -> void:
 		while _accum >= tick_len:
 			_accum -= tick_len
 			_sim.step(_stream)
+			var contact := BattleBridge.detect_contact(_sim.state)
+			if not contact.is_empty():
+				_launch_battle(contact)
+				return
 	_update_label()
 	queue_redraw()
+
+
+func _launch_battle(contact: Array) -> void:
+	var side0_id: String = contact[0] if _sim.state.fleets[contact[0]]["side"] == 0 else contact[1]
+	var side1_id: String = contact[0] if _sim.state.fleets[contact[0]]["side"] == 1 else contact[1]
+	BattleBridge.seed_skirmish(_sim.state, side0_id, side1_id)
+	get_tree().change_scene_to_file("res://main.tscn")
 
 
 func _unhandled_input(event: InputEvent) -> void:
