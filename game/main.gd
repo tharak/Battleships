@@ -7,11 +7,17 @@ extends Node2D
 ## sustained losses (worse from the flank/rear) drain morale; a squadron below half
 ## wavers (gold outline, half fire effectiveness), and at zero it routs (dimmed grey,
 ## flees the nearest enemy under its own autopilot, cannot fire, ignores orders,
-## until it disengages far enough to rally). This scene never mutates Sim state
-## directly — every order becomes a Command appended to `_stream`, timestamped at the
-## sim's current tick, exactly like a recorded replay (GDD §11: "no direct UI-to-sim
-## pokes"). Combat and morale need no player order at all; they're a pure consequence
-## of range, arc, and losses, read each tick from live state.
+## until it disengages far enough to rally) — and flagship command radius (#8, GDD
+## §5.6, drawn as a translucent ring around each flagship): squadrons inside regen
+## morale faster and answer orders immediately; outside, orders take ~2s to arrive
+## (nothing to click for this — it's just how far a command has to travel). Losing
+## the flagship is fleet-wide: every survivor takes an immediate morale shock, and
+## regen stays permanently reduced for the rest of the battle. This scene never
+## mutates Sim state directly — every order becomes a Command appended to `_stream`,
+## timestamped at the sim's current tick (delayed if the squadron is out of command),
+## exactly like a recorded replay (GDD §11: "no direct UI-to-sim pokes"). Combat and
+## morale need no player order at all; they're a pure consequence of range, arc,
+## losses, and command radius, read each tick from live state.
 ##
 ## Controls:
 ##   left click / drag   select your squadrons (blue, side 0)
@@ -33,8 +39,8 @@ const SQUAD_RADIUS := 14.0
 const TURN_STEP := 20.0   # single-tap nudge
 const HOLD_LEAD := 24.0   # degrees kept "ahead" of current facing per tick while held;
 						  # must clear TURN_RATE/TICKS_PER_SEC (one tick's max turn) by a
-                          # comfortable margin so the lead never collapses to zero, and
-                          # stay far short of 180° so the shortest-path turn never flips.
+						  # comfortable margin so the lead never collapses to zero, and
+						  # stay far short of 180° so the shortest-path turn never flips.
 const PLAYER_SIDE := 0
 const BEAM_COLOR := {"front": Color(1, 0.85, 0.3, 0.8), "flank": Color(1, 0.55, 0.15, 0.85),
 	"rear": Color(1, 0.2, 0.2, 0.9)}
@@ -214,9 +220,24 @@ func _issue_group_move(click_pos: Vector2) -> void:
 	for id in live:
 		var offset: Vector2 = _sim.state.squadrons[id]["pos"] - centroid
 		var target := click_pos + offset
-		_stream.record(Commands.make(_sim.state.tick, "order_move", {
+		_stream.record(Commands.make(_command_tick(id), "order_move", {
 			"id": id, "target": Commands.pos_to_array(target),
 		}))
+
+
+## Flagship command radius (issue #8, GDD §5.6): a squadron outside its own
+## flagship's command radius takes "seconds to arrive" — implemented as scheduling
+## the recorded command a few ticks in the future instead of at the current tick.
+## Needs no Sim-side mechanic: due() already only delivers a command once its
+## timestamp arrives, so a delayed timestamp IS the delay.
+func _command_tick(squadron_id: String) -> int:
+	if not _sim.state.squadrons.has(squadron_id):
+		return _sim.state.tick
+	var sq: Dictionary = _sim.state.squadrons[squadron_id]
+	var flagship: Variant = Command.flagship_pos(sq["side"], _sim.state.squadrons)
+	if Command.is_in_command(sq["pos"], flagship):
+		return _sim.state.tick
+	return _sim.state.tick + Command.ORDER_DELAY_TICKS
 
 
 ## Draw the selection up into a named formation (issue #6, GDD §5.4). This is pure
@@ -281,7 +302,7 @@ func _apply_formation(name: String) -> void:
 		var s: Dictionary = slots[assignment[id]]
 		var world := anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(facing)) * SLOT_SPACING
 		var slot_face: float = facing + s["face_offset"] if s["face_offset"] != null else facing
-		_stream.record(Commands.make(_sim.state.tick, "order_move", {
+		_stream.record(Commands.make(_command_tick(id), "order_move", {
 			"id": id, "target": Commands.pos_to_array(world), "face": slot_face,
 		}))
 
@@ -326,7 +347,7 @@ func _order_face_all_selected(offset_deg: float) -> void:
 		if not _sim.state.squadrons.has(id):
 			continue
 		var facing: float = _sim.state.squadrons[id]["facing"]
-		_stream.record(Commands.make(_sim.state.tick, "order_face", {
+		_stream.record(Commands.make(_command_tick(id), "order_face", {
 			"id": id, "facing": Geometry.normalize_angle(facing + offset_deg),
 		}))
 
@@ -355,6 +376,8 @@ func _update_label() -> void:
 func _draw() -> void:
 	if _sim == null:
 		return
+	for side in [0, 1]:
+		_draw_command_radius(side)
 	for beam in _fire_beams:
 		_draw_beam(beam[0], beam[1], beam[2])
 	for id in _sim.state.squadrons.keys():
@@ -363,6 +386,16 @@ func _draw() -> void:
 		var rect := Rect2(_drag_start, Vector2.ZERO).expand(_drag_current)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.15), true)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.8), false, 1.5)
+
+
+## Issue #8's whole point made visible: where you place the flagship IS the shape of
+## this circle. Drawn first (under everything else) so it reads as a zone, not a mark.
+func _draw_command_radius(side: int) -> void:
+	var flagship: Variant = Command.flagship_pos(side, _sim.state.squadrons)
+	if flagship == null:
+		return
+	var side_color := Color(0.29, 0.62, 1.0) if side == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
+	draw_arc(flagship, Command.COMMAND_RADIUS, 0.0, TAU, 48, Color(side_color.r, side_color.g, side_color.b, 0.25), 1.5)
 
 
 ## Arc-colored so a flank/rear hit reads at a glance, not just numerically.

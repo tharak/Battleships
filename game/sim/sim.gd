@@ -212,6 +212,12 @@ func _advance_combat(dt: float) -> Array:
 ## checked after damage+regen settle, and a fresh rout fires contagion to nearby
 ## friendlies; a friendly's destruction this same tick does too, using the position
 ## the combat pass captured before erasing it.
+## Command radius (issue #8): regen is boosted for squadrons within COMMAND_RADIUS of
+## their side's living flagship, and permanently reduced fleet-wide once it's gone —
+## on top of the immediate fleet-wide shock every survivor takes the instant it dies.
+## Squadrons freshly hit by that shock have their rout transition checked next tick,
+## not this one (transitions are checked once, earlier in this same function) — a
+## one-tick (0.1s) detection delay on a shock-induced rout, not a correctness bug.
 func _advance_morale(dt: float, combat_events: Array) -> Array:
 	var events := []
 	var hit_ids := {}
@@ -220,11 +226,16 @@ func _advance_morale(dt: float, combat_events: Array) -> Array:
 			Morale.apply_hit(state.squadrons[ev["target"]], ev["arc"], ev["strength_lost"])
 			hit_ids[ev["target"]] = true
 
+	var flagship_pos := [Command.flagship_pos(0, state.squadrons), Command.flagship_pos(1, state.squadrons)]
+
 	var ids := state.squadrons.keys()
 	ids.sort()
 	for id in ids:
 		if not hit_ids.has(id):
-			Morale.regen(state.squadrons[id], dt)
+			var sq: Dictionary = state.squadrons[id]
+			var in_command := Command.is_in_command(sq["pos"], flagship_pos[sq["side"]])
+			var rate := Command.regen_rate(Morale.MORALE_REGEN, in_command, state.fleets[sq["side"]]["flagship_lost"])
+			Morale.regen(sq, dt, rate)
 
 	for id in ids:
 		if not state.squadrons.has(id):
@@ -245,5 +256,12 @@ func _advance_morale(dt: float, combat_events: Array) -> Array:
 		for fid in Morale.contagion_targets(state.squadrons, ev["side"], ev["pos"], ev["id"]):
 			var f: Dictionary = state.squadrons[fid]
 			f["morale"] = maxf(0.0, f["morale"] - Morale.NEARBY_DEATH_PENALTY)
+		if ev["flag"]:
+			state.fleets[ev["side"]]["flagship_lost"] = true
+			events.append({"type": "flagship_lost", "side": ev["side"]})
+			for sid in state.squadrons.keys():
+				var s: Dictionary = state.squadrons[sid]
+				if s["side"] == ev["side"]:
+					s["morale"] = maxf(0.0, s["morale"] - Command.FLAGSHIP_LOST_SHOCK)
 
 	return events

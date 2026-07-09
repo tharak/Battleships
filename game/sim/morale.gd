@@ -83,8 +83,10 @@ static func apply_hit(sq: Dictionary, arc: String, strength_lost: int) -> void:
 	sq["morale"] = maxf(0.0, sq["morale"] - LOSS_PENALTY * mult * strength_lost)
 
 
-static func regen(sq: Dictionary, dt: float) -> void:
-	sq["morale"] = minf(100.0, sq["morale"] + MORALE_REGEN * dt)
+## `rate` defaults to the base regen — sim.gd passes Command.regen_rate's
+## command-radius/flagship-loss-adjusted value instead (issue #8).
+static func regen(sq: Dictionary, dt: float, rate := MORALE_REGEN) -> void:
+	sq["morale"] = minf(100.0, sq["morale"] + rate * dt)
 
 
 ## Returns "routed" if this call is what pushed the squadron into rout, "rallied" if

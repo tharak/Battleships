@@ -14,6 +14,10 @@ class_name BattleState
 ##   (0-100), routed: bool (sticky — see sim/morale.gd for why waver has no
 ##   equivalent stored field but rout does)
 ##
+## `fleets` is small per-side state that isn't naturally a squadron field: index 0/1
+## by side, {"flagship_lost": bool} — GDD §5.6's permanent morale penalty and command
+## radius loss once a flagship dies (sim/command.gd).
+##
 ## Deliberate scope call: positions/angles are plain floats, not fixed-point. Bit-exact
 ## cross-machine determinism (needed for lockstep netcode) depends on sin/cos/atan2
 ## matching across platforms, which GDD §11 explicitly defers ("netcode itself... is
@@ -26,6 +30,7 @@ class_name BattleState
 var tick: int = 0
 var rng: RandomNumberGenerator
 var squadrons: Dictionary = {}  # id (String) -> Dictionary
+var fleets: Array[Dictionary] = [{"flagship_lost": false}, {"flagship_lost": false}]
 
 
 func _init(seed_value: int) -> void:
@@ -63,6 +68,7 @@ func to_dict() -> Dictionary:
 		"tick": tick,
 		"rng_state": int(rng.state),
 		"squadrons": squad_list,
+		"fleets": [fleets[0], fleets[1]],
 	}
 
 
