@@ -65,3 +65,22 @@ static func pick_target(firer_id: String, firer: Dictionary, squadrons: Dictiona
 static func damage_this_tick(firer: Dictionary, target: Dictionary, fire_mult: float, dt: float) -> float:
 	var mult: float = ARC_MULT[target_arc(firer["pos"], target)]
 	return DPS_PER_STRENGTH * float(firer["strength"]) * mult * fire_mult * dt
+
+
+## Nearest living enemy of `sq`, ignoring range and arc (unlike pick_target — this is
+## for rout/flee (issue #7, sim/morale.gd), which cares what's dangerous nearby, not
+## what's a legal shot). Returns its position, or null if the enemy side has nobody left.
+static func nearest_enemy_pos(sq: Dictionary, squadrons: Dictionary):
+	var best = null
+	var best_dist := INF
+	var ids := squadrons.keys()
+	ids.sort()
+	for id in ids:
+		var other: Dictionary = squadrons[id]
+		if other["side"] == sq["side"]:
+			continue
+		var dist: float = (sq["pos"] as Vector2).distance_to(other["pos"])
+		if dist < best_dist:
+			best_dist = dist
+			best = other["pos"]
+	return best

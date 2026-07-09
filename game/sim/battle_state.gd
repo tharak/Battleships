@@ -10,7 +10,9 @@ class_name BattleState
 ##   null (facing to turn to once `target` is reached — see commands.gd's order_move
 ##   "face" field, used by formation orders), cohesion: float (0-100), strength: int,
 ##   flag: bool, dmg_accum: float (fractional damage since the last whole point of
-##   strength was lost — GDD §5.3's "losses are always legible")
+##   strength was lost — GDD §5.3's "losses are always legible"), morale: float
+##   (0-100), routed: bool (sticky — see sim/morale.gd for why waver has no
+##   equivalent stored field but rout does)
 ##
 ## Deliberate scope call: positions/angles are plain floats, not fixed-point. Bit-exact
 ## cross-machine determinism (needed for lockstep netcode) depends on sin/cos/atan2
@@ -54,6 +56,8 @@ func to_dict() -> Dictionary:
 			"strength": sq["strength"],
 			"flag": sq["flag"],
 			"dmg_accum": sq["dmg_accum"],
+			"morale": sq["morale"],
+			"routed": sq["routed"],
 		})
 	return {
 		"tick": tick,

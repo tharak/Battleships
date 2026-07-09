@@ -2,12 +2,16 @@ extends Node2D
 ## Interactive proving ground for the battle-layer systems landing in Phase 1
 ## (GDD §5): movement & facing (#4), beam combat (#5, GDD §5.3/§5.5) — squadrons fire
 ## automatically at the nearest enemy in range and their own front arc, no manual
-## targeting; position is the whole game — and formations (#6, GDD §5.4): draw the
-## selection up into one of six named shapes. This scene never mutates Sim state
+## targeting; position is the whole game — formations (#6, GDD §5.4): draw the
+## selection up into one of six named shapes — and morale/waver/rout (#7, GDD §5.5):
+## sustained losses (worse from the flank/rear) drain morale; a squadron below half
+## wavers (gold outline, half fire effectiveness), and at zero it routs (dimmed grey,
+## flees the nearest enemy under its own autopilot, cannot fire, ignores orders,
+## until it disengages far enough to rally). This scene never mutates Sim state
 ## directly — every order becomes a Command appended to `_stream`, timestamped at the
 ## sim's current tick, exactly like a recorded replay (GDD §11: "no direct UI-to-sim
-## pokes"). Combat itself needs no player order at all; it's a pure consequence of
-## range + arc, read each tick from live state.
+## pokes"). Combat and morale need no player order at all; they're a pure consequence
+## of range, arc, and losses, read each tick from live state.
 ##
 ## Controls:
 ##   left click / drag   select your squadrons (blue, side 0)
@@ -329,19 +333,22 @@ func _order_face_all_selected(offset_deg: float) -> void:
 
 func _update_label() -> void:
 	var speed_txt := "paused" if _paused else "%dx" % int(_speed)
-	var blue_n := 0; var blue_str := 0; var red_n := 0; var red_str := 0
+	var blue_n := 0; var blue_str := 0; var blue_routed := 0
+	var red_n := 0; var red_str := 0; var red_routed := 0
 	for id in _sim.state.squadrons.keys():
 		var sq: Dictionary = _sim.state.squadrons[id]
 		if sq["side"] == PLAYER_SIDE:
 			blue_n += 1; blue_str += sq["strength"]
+			if sq["routed"]: blue_routed += 1
 		else:
 			red_n += 1; red_str += sq["strength"]
+			if sq["routed"]: red_routed += 1
 	_label.text = ("tick %d   %s   hash %s   selected: %s\n" +
-		"Blue: %d squadrons, %d strength   Red: %d squadrons, %d strength\n" +
+		"Blue: %d squadrons, %d strength, %d routed   Red: %d squadrons, %d strength, %d routed\n" +
 		"drag-select (left) · move (right-click) · turn (Q/E) · form up (F1-F6) · speed (Space/1/2/3)") % [
 		_sim.state.tick, speed_txt, _sim.state.state_hash().left(10),
 		(", ".join(_selected) if not _selected.is_empty() else "none"),
-		blue_n, blue_str, red_n, red_str,
+		blue_n, blue_str, blue_routed, red_n, red_str, red_routed,
 	]
 
 
@@ -371,7 +378,12 @@ func _draw_beam(firer_id: String, target_id: String, arc: String) -> void:
 func _draw_squadron(id: String, sq: Dictionary) -> void:
 	var pos: Vector2 = sq["pos"]
 	var facing_rad := deg_to_rad(sq["facing"])
-	var side_color := Color(0.29, 0.62, 1.0) if sq["side"] == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
+	var routed: bool = sq["routed"]
+	var wavering: bool = Morale.is_wavering(sq)
+	var base_color := Color(0.29, 0.62, 1.0) if sq["side"] == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
+	# Routed = dimmed toward grey, matching the Phase 0 web prototype's convention
+	# (docs/prototypes/battle.html: ROUTED fills grey, SHAKEN gets a gold outline).
+	var side_color := base_color.lerp(Color(0.23, 0.25, 0.3), 0.6) if routed else base_color
 
 	# Translucent front-arc wedge (±90°, GDD §5.5's front arc), so facing reads at a glance.
 	var wedge := PackedVector2Array([pos])
@@ -383,12 +395,22 @@ func _draw_squadron(id: String, sq: Dictionary) -> void:
 
 	# Selection ring.
 	if id in _selected:
-		draw_arc(pos, SQUAD_RADIUS + 6.0, 0.0, TAU, 24, Color(1, 1, 1, 0.9), 2.0)
+		draw_arc(pos, SQUAD_RADIUS + 9.0, 0.0, TAU, 24, Color(1, 1, 1, 0.9), 2.0)
 
-	# Cohesion ring: green at full, red as it drops.
+	# Morale ring: green at full, red as it drops — the outer ring, since morale is
+	# the more consequential meter (it's what leads to rout).
+	var morale: float = sq["morale"]
+	var morale_color := Color(1.0, 0.35, 0.25).lerp(Color(0.3, 0.9, 0.4), morale / 100.0)
+	draw_arc(pos, SQUAD_RADIUS + 6.0, 0.0, TAU * morale / 100.0, 20, morale_color, 2.5)
+
+	# Cohesion ring: same convention, inner ring.
 	var cohesion: float = sq["cohesion"]
 	var coh_color := Color(1.0, 0.35, 0.25).lerp(Color(0.3, 0.9, 0.4), cohesion / 100.0)
 	draw_arc(pos, SQUAD_RADIUS + 3.0, 0.0, TAU * cohesion / 100.0, 20, coh_color, 2.5)
+
+	# Wavering: a gold outline, same as the web prototype's Shaken state.
+	if wavering:
+		draw_arc(pos, SQUAD_RADIUS - 1.0, 0.0, TAU, 20, Color(1.0, 0.82, 0.4, 0.9), 2.0)
 
 	# Hull: a triangle pointing along facing.
 	var nose := pos + Vector2(cos(facing_rad), sin(facing_rad)) * SQUAD_RADIUS

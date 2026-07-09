@@ -25,19 +25,20 @@ func _init(seed_value: int) -> void:
 	state = BattleState.new(seed_value)
 
 
-## Advance exactly one tick: apply commands due this tick, then kinematics, then
-## combat. Never call anything else to mutate state — this is the determinism
-## contract. Returns this tick's combat events (hits/destructions) so a caller like
-## main.gd can render them (e.g. a firing beam) without re-deriving them; nothing
-## inside Sim itself depends on the return value.
+## Advance exactly one tick: apply commands due this tick, then kinematics, combat,
+## morale. Never call anything else to mutate state — this is the determinism
+## contract. Returns this tick's events (hits/destructions/routs/rallies) so a caller
+## like main.gd can render them without re-deriving them; nothing inside Sim itself
+## depends on the return value.
 func step(stream: CommandStream) -> Array:
 	for cmd in stream.due(state.tick):
 		_apply(cmd)
 	var dt := 1.0 / TICKS_PER_SEC
 	_advance_kinematics(dt)
-	var events := _advance_combat(dt)
+	var combat_events := _advance_combat(dt)
+	var morale_events := _advance_morale(dt, combat_events)
 	state.tick += 1
-	return events
+	return combat_events + morale_events
 
 
 func run_stream(stream: CommandStream, ticks: int) -> void:
@@ -66,9 +67,13 @@ func _apply(cmd: Dictionary) -> void:
 				"arrive_facing": null,
 				"cohesion": 100.0,
 				"dmg_accum": 0.0,
+				"morale": 100.0,
+				"routed": false,
 			}
 		"order_move":
-			if state.squadrons.has(a["id"]):
+			# Routed squadrons ignore orders entirely (GDD §5.5) — they're fleeing on
+			# their own autopilot (see _advance_flee) until they rally.
+			if state.squadrons.has(a["id"]) and not state.squadrons[a["id"]]["routed"]:
 				var sq: Dictionary = state.squadrons[a["id"]]
 				sq["target"] = Commands.array_to_pos(a["target"])
 				# Always overwrite (never leave a stale facing goal from an earlier
@@ -76,7 +81,7 @@ func _apply(cmd: Dictionary) -> void:
 				# travel left you with", same as before this field existed.
 				sq["arrive_facing"] = Geometry.normalize_angle(float(a["face"])) if a.has("face") else null
 		"order_face":
-			if state.squadrons.has(a["id"]):
+			if state.squadrons.has(a["id"]) and not state.squadrons[a["id"]]["routed"]:
 				var sq: Dictionary = state.squadrons[a["id"]]
 				sq["target"] = null
 				sq["desired_facing"] = Geometry.normalize_angle(float(a["facing"]))
@@ -87,6 +92,10 @@ func _advance_kinematics(dt: float) -> void:
 	ids.sort()
 	for id in ids:
 		var sq: Dictionary = state.squadrons[id]
+		if sq["routed"]:
+			_advance_flee(sq, dt)
+			continue
+
 		var target = sq.get("target")
 
 		if target != null:
@@ -122,6 +131,43 @@ func _advance_kinematics(dt: float) -> void:
 			sq["pos"] = sq["pos"] + to_target.normalized() * step_dist
 
 
+## Routed autopilot (issue #7, GDD §5.5): ignores any standing order and runs
+## directly away from the nearest enemy — adapted from the paper prototype's "faces
+## its own map edge", since this continuous engine has no fixed deployment edge to
+## flee toward, and "away from the nearest threat" is the more robust reading of the
+## same intent anyway (a fixed edge could point straight at a different enemy).
+## Cohesion collapses unconditionally while routed, on top of whatever the turning
+## itself already costs — a rout should look and feel like a structural collapse.
+## Moves at Morale.FLEE_SPEED_MULT the normal pace ("spend all MP fleeing", paper §6,
+## read as an all-out panic run rather than tactical repositioning).
+##
+## Facing snaps instantly to the flee direction instead of being TURN_RATE-limited
+## like every other order — "immediately faces its own map edge" (paper §6) is read
+## literally, not as "starts turning toward it". This isn't just flavor: a squadron
+## that had just routed while facing its attacker needs close to a full 180° turn,
+## which at TURN_RATE takes ~30 ticks — and it spends that whole window still
+## showing flank/rear to the enemy that just broke it, unable to take a single step
+## in the meantime (movement requires being within FACE_TOLERANCE of the heading).
+## Empirically (tested against the real demo scenario, not just isolated scripted
+## fights) that reliably killed the squadron before it moved at all, no matter how
+## much morale/speed tuning was applied on top — turning "the loser escapes with a
+## mauled fleet" (GDD §5.5) into annihilation regardless. A panicked crew doesn't
+## execute a smooth helm turn; they scatter and run.
+func _advance_flee(sq: Dictionary, dt: float) -> void:
+	var nearest = Combat.nearest_enemy_pos(sq, state.squadrons)
+	sq["cohesion"] = maxf(0.0, sq["cohesion"] - Morale.ROUT_COHESION_DRAIN * dt)
+	if nearest != null:
+		sq["desired_facing"] = Geometry.normalize_angle(Geometry.angle_between(nearest, sq["pos"]))
+		sq["facing"] = sq["desired_facing"]
+	if nearest == null:
+		return  # nothing left to flee from — hold position
+	# Facing was just snapped exactly to desired_facing above, so there's no
+	# FACE_TOLERANCE gate to check here (unlike normal orders) — a routed squadron
+	# always moves.
+	var heading := deg_to_rad(sq["facing"])
+	sq["pos"] = sq["pos"] + Vector2(cos(heading), sin(heading)) * SPEED * Morale.FLEE_SPEED_MULT * dt
+
+
 ## Beam combat (issue #5): each squadron with a legal target (Combat.pick_target)
 ## deals continuous damage every tick. Firer and target are both read from live state
 ## (not a start-of-tick snapshot) — a squadron already hit earlier this same tick by
@@ -135,11 +181,13 @@ func _advance_combat(dt: float) -> Array:
 		if not state.squadrons.has(firer_id):
 			continue  # destroyed earlier this same pass
 		var firer: Dictionary = state.squadrons[firer_id]
+		var fire_mult := Morale.fire_multiplier(firer)
+		if fire_mult <= 0.0:
+			continue  # routed: cannot fire at all (GDD §5.5)
 		var target_id := Combat.pick_target(firer_id, firer, state.squadrons)
 		if target_id == "":
 			continue
 		var target: Dictionary = state.squadrons[target_id]
-		var fire_mult := 1.0  # morale/waver effectiveness lands in issue #7
 		var dmg: float = Combat.damage_this_tick(firer, target, fire_mult, dt)
 		var arc := Combat.target_arc(firer["pos"], target)
 		target["dmg_accum"] += dmg
@@ -147,10 +195,55 @@ func _advance_combat(dt: float) -> Array:
 		if whole > 0:
 			target["dmg_accum"] -= whole
 			target["strength"] = maxi(0, target["strength"] - whole)
-		events.append({"type": "hit", "firer": firer_id, "target": target_id, "arc": arc, "dmg": dmg})
+		events.append({"type": "hit", "firer": firer_id, "target": target_id, "arc": arc,
+			"dmg": dmg, "strength_lost": whole})
 		if target["strength"] <= 0:
 			var side: int = target["side"]
 			var was_flag: bool = target["flag"]
+			var pos: Vector2 = target["pos"]
 			state.squadrons.erase(target_id)
-			events.append({"type": "destroyed", "id": target_id, "side": side, "flag": was_flag})
+			events.append({"type": "destroyed", "id": target_id, "side": side, "flag": was_flag, "pos": pos})
+	return events
+
+
+## Morale, waver, rout (issue #7): damage from this tick's combat drains morale
+## (with a flank/rear surcharge); everyone else not hit this tick regenerates —
+## that's the whole of "recovers when disengaged". Rout/rally transitions are
+## checked after damage+regen settle, and a fresh rout fires contagion to nearby
+## friendlies; a friendly's destruction this same tick does too, using the position
+## the combat pass captured before erasing it.
+func _advance_morale(dt: float, combat_events: Array) -> Array:
+	var events := []
+	var hit_ids := {}
+	for ev in combat_events:
+		if ev["type"] == "hit" and state.squadrons.has(ev["target"]):
+			Morale.apply_hit(state.squadrons[ev["target"]], ev["arc"], ev["strength_lost"])
+			hit_ids[ev["target"]] = true
+
+	var ids := state.squadrons.keys()
+	ids.sort()
+	for id in ids:
+		if not hit_ids.has(id):
+			Morale.regen(state.squadrons[id], dt)
+
+	for id in ids:
+		if not state.squadrons.has(id):
+			continue
+		var sq: Dictionary = state.squadrons[id]
+		var transition := Morale.check_transition(sq)
+		if transition == "routed":
+			events.append({"type": "routed", "id": id, "side": sq["side"]})
+			for fid in Morale.contagion_targets(state.squadrons, sq["side"], sq["pos"], id):
+				var f: Dictionary = state.squadrons[fid]
+				f["morale"] = maxf(0.0, f["morale"] - Morale.NEARBY_ROUT_PENALTY)
+		elif transition == "rallied":
+			events.append({"type": "rallied", "id": id, "side": sq["side"]})
+
+	for ev in combat_events:
+		if ev["type"] != "destroyed":
+			continue
+		for fid in Morale.contagion_targets(state.squadrons, ev["side"], ev["pos"], ev["id"]):
+			var f: Dictionary = state.squadrons[fid]
+			f["morale"] = maxf(0.0, f["morale"] - Morale.NEARBY_DEATH_PENALTY)
+
 	return events
