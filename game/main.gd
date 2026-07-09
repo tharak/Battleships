@@ -123,6 +123,7 @@ var _cam_dist := 0.0
 var _cam_azimuth_deg := 0.0
 var _cam_elev_deg := 0.0
 var _ship_meshes: Dictionary = {}  # squadron id -> MeshInstance3D
+var _hull_materials: Array[StandardMaterial3D] = []  # index by side, built once in _setup_3d
 
 var _sim: Sim
 var _stream: CommandStream
@@ -210,6 +211,18 @@ func _setup_3d() -> void:
 	_cam_azimuth_deg = 0.0
 	_update_cam_orbit()
 
+	# Hull tint (one shared material per side, not per-ship): the imported .vox mesh
+	# already uses vertex_color_use_as_albedo (confirmed via inspection, not assumed)
+	# with a white albedo_color, so setting albedo_color to the side color multiplies
+	# it into the model's own voxel-palette shading rather than replacing it — the
+	# hull keeps its detail, just cast in the faction's color, matching the same
+	# blue/red language every 2D overlay already uses (_side_color).
+	for side in [0, 1]:
+		var mat := StandardMaterial3D.new()
+		mat.vertex_color_use_as_albedo = true
+		mat.albedo_color = _side_color(side)
+		_hull_materials.append(mat)
+
 
 ## Zoom is just the orthogonal camera's `size` (smaller = more magnified) — camera
 ## position/tilt are untouched, so this can't ever change the framing/angle, only
@@ -284,6 +297,7 @@ func _sync_3d_visuals() -> void:
 			mi = MeshInstance3D.new()
 			mi.mesh = WARSHIP_MESH
 			mi.scale = Vector3.ONE * SHIP_MESH_SCALE
+			mi.material_override = _hull_materials[sq["side"]]
 			_world3d.add_child(mi)
 			_ship_meshes[id] = mi
 		mi.position = _sim_to_world(sq["pos"])
@@ -658,20 +672,31 @@ func _draw_command_radius(side: int) -> void:
 	var flagship: Variant = Command.flagship_pos(side, _sim.state.squadrons)
 	if flagship == null:
 		return
-	var side_color := Color(0.29, 0.62, 1.0) if side == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
+	var side_color := _side_color(side)
 	var screen_radius := Command.COMMAND_RADIUS * SIM_TO_WORLD * (get_viewport_rect().size.y / _cam_zoom)
 	draw_arc(_project_to_screen(flagship), screen_radius, 0.0, TAU, 48,
 		Color(side_color.r, side_color.g, side_color.b, 0.25), 1.5)
 
 
-## Arc-colored so a flank/rear hit reads at a glance, not just numerically.
+## Arc-colored so a flank/rear hit reads at a glance, not just numerically, but
+## blended toward the firer's own side color so it's also clear at a glance whose
+## shot this is — a lighter tint than the hull/rings get, so the arc hue (the more
+## actionable read: "that was a flank hit") stays dominant.
 func _draw_beam(firer_id: String, target_id: String, arc: String) -> void:
 	if not _sim.state.squadrons.has(firer_id) or not _sim.state.squadrons.has(target_id):
 		return
 	var a := _project_to_screen(_sim.state.squadrons[firer_id]["pos"])
 	var b := _project_to_screen(_sim.state.squadrons[target_id]["pos"])
 	var arc_color: Color = BEAM_COLOR[arc]
-	draw_line(a, b, arc_color, 2.0)
+	var firer_side: int = _sim.state.squadrons[firer_id]["side"]
+	var tinted := arc_color.lerp(_side_color(firer_side), 0.3)
+	draw_line(a, b, tinted, 2.0)
+
+
+## Blue (player) vs. red (enemy) — the one color pair every side-colored overlay
+## in this file shares (rings, wedge, beams, hull tint).
+func _side_color(side: int) -> Color:
+	return Color(0.29, 0.62, 1.0) if side == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
 
 
 func _draw_squadron(id: String, sq: Dictionary) -> void:
@@ -679,7 +704,7 @@ func _draw_squadron(id: String, sq: Dictionary) -> void:
 	var facing_rad := deg_to_rad(sq["facing"])
 	var routed: bool = sq["routed"]
 	var wavering: bool = Morale.is_wavering(sq)
-	var base_color := Color(0.29, 0.62, 1.0) if sq["side"] == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
+	var base_color := _side_color(sq["side"])
 	# Routed = dimmed toward grey, matching the Phase 0 web prototype's convention
 	# (docs/prototypes/battle.html: ROUTED fills grey, SHAKEN gets a gold outline).
 	var side_color := base_color.lerp(Color(0.23, 0.25, 0.3), 0.6) if routed else base_color
