@@ -14,7 +14,9 @@ class_name StrategicState
 ## dest (String or null — null means holding at `system`, not traveling),
 ## progress (float 0-1, fraction of the current lane covered), path
 ## (Array[String], remaining hops queued after `dest` — consumed one at a time
-## as each hop completes, see strategic_sim.gd's _start_next_hop).
+## as each hop completes, see strategic_sim.gd's _start_next_hop), supply
+## (float 0-100 — issue #13, GDD §4.4, drained/regenerated each tick by
+## strategic/supply.gd).
 ##
 ## `system_owner`: id -> side (-1 = neutral/contested), seeded from Galaxy's
 ## static data and (in a later issue) mutated by battle outcomes/invasions —

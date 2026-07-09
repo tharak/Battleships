@@ -20,15 +20,26 @@ func _init() -> void:
 	state = StrategicState.new()
 
 
-## Advance exactly one tick: apply due commands, then move fleets. Returns this
-## tick's events (currently just "arrived") so a caller can react without
+## Advance exactly one tick: apply due commands, then move fleets, then settle
+## supply (issue #13) against wherever fleets ended up THIS tick — matches
+## sim/sim.gd's combat-then-morale ordering (a later system reads the current
+## tick's outcome from the earlier one, not last tick's stale state). Returns
+## this tick's events (currently just "arrived") so a caller can react without
 ## re-deriving them, same convention as sim/sim.gd's step().
 func step(stream: StrategicCommandStream) -> Array:
 	for cmd in stream.due(state.tick):
 		_apply(cmd)
 	var events := _advance_fleets()
+	_advance_supply()
 	state.tick += 1
 	return events
+
+
+func _advance_supply() -> void:
+	var ids := state.fleets.keys()
+	ids.sort()
+	for id in ids:
+		Supply.advance(state, id)
 
 
 func run_stream(stream: StrategicCommandStream, ticks: int) -> void:
@@ -43,7 +54,7 @@ func _apply(cmd: Dictionary) -> void:
 		"spawn_fleet":
 			state.fleets[a["id"]] = {
 				"side": int(a["side"]), "system": String(a["system"]),
-				"dest": null, "progress": 0.0, "path": [],
+				"dest": null, "progress": 0.0, "path": [], "supply": 100.0,
 			}
 		"order_move":
 			if state.fleets.has(a["id"]):

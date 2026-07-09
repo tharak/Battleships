@@ -111,7 +111,9 @@ func _fleet_pos(f: Dictionary) -> Vector2:
 
 func _update_label() -> void:
 	var speed_txt := "paused" if _paused else "%dx" % int(_speed)
-	var fleet_txt := "none" if _selected_fleet == "" else _selected_fleet
+	var fleet_txt := "none"
+	if _selected_fleet != "" and _sim.state.fleets.has(_selected_fleet):
+		fleet_txt = "%s (supply %d%%)" % [_selected_fleet, int(_sim.state.fleets[_selected_fleet]["supply"])]
 	_label.text = ("Week %d   %s   selected fleet: %s\n" +
 		"left-click a fleet to select it, left-click a system to send it there\n" +
 		"Space pause/resume · 1/2/3 speed") % [_sim.state.tick, speed_txt, fleet_txt]
@@ -154,5 +156,12 @@ func _draw() -> void:
 		# thin, mostly-transparent ring) reads as a distinct token at any zoom.
 		draw_circle(pos, FLEET_RADIUS, color.lightened(0.35))
 		draw_arc(pos, FLEET_RADIUS, 0.0, TAU, 16, Color(0, 0, 0, 0.9), 2.5)
+		# Supply ring (issue #13): green at full, red as it drains, same green-to-
+		# red convention as the battle layer's morale ring -- "visibly starves" is
+		# the issue's own showable-outcome wording, so this can't just be a number
+		# in a tooltip.
+		var supply: float = f.get("supply", 100.0)
+		var supply_color := Color(1.0, 0.35, 0.25).lerp(Color(0.3, 0.9, 0.4), supply / 100.0)
+		draw_arc(pos, FLEET_RADIUS + 4.0, 0.0, TAU * supply / 100.0, 16, supply_color, 2.5)
 		if fid == _selected_fleet:
-			draw_arc(pos, FLEET_RADIUS + 6.0, 0.0, TAU, 20, Color(1, 1, 1, 0.9), 2.0)
+			draw_arc(pos, FLEET_RADIUS + 8.0, 0.0, TAU, 20, Color(1, 1, 1, 0.9), 2.0)
