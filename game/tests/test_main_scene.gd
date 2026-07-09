@@ -37,13 +37,13 @@ func _test_apply_formation_moves_the_real_scene() -> void:
 	main._ready()               # idempotent (fully resets _stream/_sim each time)
 	main._sim.step(main._stream)  # apply the tick-0 spawn commands _ready() only *recorded*
 
-	# "B6" (issue #9) is a separate ambush squadron seeded already hidden inside the
-	# demo's asteroid field, not part of the reformable main fleet this test exercises
-	# — excluded the same way a player wouldn't drag their hidden ambusher out of
-	# cover into a mid-battlefield spindle alongside everyone else.
+	# "B_ambush" (issue #9) is a separate ambush squadron seeded already hidden
+	# inside the demo's asteroid field, not part of the reformable main fleet this
+	# test exercises — excluded the same way a player wouldn't drag their hidden
+	# ambusher out of cover into a mid-battlefield spindle alongside everyone else.
 	var blue_ids: Array[String] = []
 	for id in main._sim.state.squadrons.keys():
-		if main._sim.state.squadrons[id]["side"] == main.PLAYER_SIDE and id != "B6":
+		if main._sim.state.squadrons[id]["side"] == main.PLAYER_SIDE and id != "B_ambush":
 			blue_ids.append(id)
 	_check(blue_ids.size() >= 3, "scene spawns at least 3 blue squadrons by default")
 

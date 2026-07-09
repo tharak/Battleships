@@ -47,6 +47,8 @@ extends Node2D
 ##   middle-click drag   orbit the camera (horizontal = spin around the battle,
 ##                       vertical = tilt); the sim plane itself never moves or
 ##                       rotates, only the view of it does
+##   R                    return to the skirmish menu (issue #11) — works any
+##                       time, not just after the battle ends
 ##
 ## Facing convention note: Godot 2D is Y-down, so increasing degrees (standard
 ## atan2/cos/sin math) rotates CLOCKWISE on screen, not counter-clockwise. Q (turn
@@ -132,6 +134,8 @@ var _label: Label
 var _accum := 0.0
 var _speed := 1.0
 var _paused := false
+var _battle_over := false
+var _battle_result := ""  # set once, non-empty means the battle has ended
 
 var _selected: Array[String] = []
 var _drag_start = null  # Vector2 or null (raw screen coords, for the drag-box visual only)
@@ -310,52 +314,59 @@ func _sync_3d_visuals() -> void:
 			_ship_meshes.erase(id)
 
 
-## The Phase 0 paper prototype's headline matchup (spindle vs. wide line — see
-## docs/prototypes/battle-rules.md §10.c) as the default demo: the enemy spawns
-## already drawn up in a Wide Line, then reacts under its own AI (issue #10,
-## sim/battle_ai.gd) from the very first tick — it isn't scripted to just sit
-## there anymore. Press F1 to draw your own squadrons into a Spindle and go pierce
-## it; a careless charge should lose to it, a real flank should still beat it.
+## Both fleets spawn in a neutral Line and the enemy reacts under its own AI
+## (issue #10, sim/battle_ai.gd) from the first tick — no forced starting-shape
+## advantage for either side; press F1-F6 to reform your own into whatever the
+## fight calls for. Fleet sizes/strengths and the terrain choice come from
+## SkirmishConfig (issue #11's skirmish menu — see skirmish_menu.gd), which
+## defaults to the same "asteroid_flank" setup the pre-#11 hardcoded demo always
+## used, so running main.tscn directly (every existing test, or the editor) still
+## behaves the same as before the menu existed.
 func _spawn_scene() -> void:
-	var player_positions := [
-		Vector2(380, 260), Vector2(380, 320), Vector2(380, 380),
-		Vector2(320, 290), Vector2(320, 350),
-	]
-	for i in range(player_positions.size()):
+	var player_preset: Dictionary = FleetPresets.PRESETS[SkirmishConfig.player_preset]
+	var enemy_preset: Dictionary = FleetPresets.PRESETS[SkirmishConfig.enemy_preset]
+
+	var player_anchor := Vector2(380, 320)
+	var player_line := Formations.generate("line", int(player_preset["count"]))
+	var pslots: Array = player_line["slots"]
+	for i in range(pslots.size()):
+		var s: Dictionary = pslots[i]
+		var pos: Vector2 = player_anchor + Vector2(s["fwd"], s["lat"]) * SLOT_SPACING
 		_stream.record(Commands.make(0, "spawn", {
-			"id": "B%d" % (i + 1), "side": 0, "pos": Commands.pos_to_array(player_positions[i]),
-			"facing": 0.0, "strength": 15, "flag": i == 0,
+			"id": "B%d" % (i + 1), "side": 0, "pos": Commands.pos_to_array(pos),
+			"facing": 0.0, "strength": player_preset["strength"], "flag": i == player_line["flag"],
 		}))
 
 	var enemy_anchor := Vector2(700, 320)
 	var enemy_facing := 180.0
-	var line := Formations.generate("line", player_positions.size())
-	var slots: Array = line["slots"]
-	for i in range(slots.size()):
-		var s: Dictionary = slots[i]
+	var enemy_line := Formations.generate("line", int(enemy_preset["count"]))
+	var eslots: Array = enemy_line["slots"]
+	for i in range(eslots.size()):
+		var s: Dictionary = eslots[i]
 		var pos: Vector2 = enemy_anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(enemy_facing)) * SLOT_SPACING
 		_stream.record(Commands.make(0, "spawn", {
 			"id": "R%d" % (i + 1), "side": 1, "pos": Commands.pos_to_array(pos),
-			"facing": enemy_facing, "strength": 15, "flag": i == line["flag"],
+			"facing": enemy_facing, "strength": enemy_preset["strength"], "flag": i == enemy_line["flag"],
 		}))
 
-	# Issue #9 (GDD §5.7): an asteroid field south of the enemy line's flank, with a
-	# 6th blue squadron already hidden inside it. Its distance to every enemy
-	# squadron (~108-190 units) is chosen between Terrain.ASTEROID_DETECT_RADIUS (90)
-	# and Combat.RANGE (220): the ambusher can legally fire out (it isn't the one
-	# being concealed from itself), but no enemy can see or fire back until
-	# something closes to within detection range — this is the issue's showable
-	# outcome, "an ambush from an asteroid field that works", playing out
-	# automatically with no player input needed.
-	var field_pos := Vector2(600, 420)
-	_stream.record(Commands.make(0, "spawn_terrain", {
-		"id": "asteroid_1", "kind": "asteroid_field",
-		"pos": Commands.pos_to_array(field_pos), "radius": 50.0,
-	}))
-	_stream.record(Commands.make(0, "spawn", {
-		"id": "B6", "side": 0, "pos": Commands.pos_to_array(field_pos),
-		"facing": 0.0, "strength": 15, "flag": false,
-	}))
+	if SkirmishConfig.terrain_option == "asteroid_flank":
+		# Issue #9 (GDD §5.7): an asteroid field south of the enemy line's flank,
+		# with an extra blue squadron already hidden inside it. Its distance to
+		# every enemy squadron is chosen between Terrain.ASTEROID_DETECT_RADIUS
+		# (90) and Combat.RANGE (220): the ambusher can legally fire out (it isn't
+		# the one being concealed from itself), but no enemy can see or fire back
+		# until something closes to within detection range — "an ambush from an
+		# asteroid field that works", playing out automatically with no player
+		# input needed.
+		var field_pos := Vector2(600, 420)
+		_stream.record(Commands.make(0, "spawn_terrain", {
+			"id": "asteroid_1", "kind": "asteroid_field",
+			"pos": Commands.pos_to_array(field_pos), "radius": 50.0,
+		}))
+		_stream.record(Commands.make(0, "spawn", {
+			"id": "B_ambush", "side": 0, "pos": Commands.pos_to_array(field_pos),
+			"facing": 0.0, "strength": player_preset["strength"], "flag": false,
+		}))
 
 
 func _process(delta: float) -> void:
@@ -371,9 +382,36 @@ func _process(delta: float) -> void:
 			for ev in _sim.step(_stream):
 				if ev["type"] == "hit":
 					_fire_beams.append([ev["firer"], ev["target"], ev["arc"]])
+	_check_battle_over()
 	_sync_3d_visuals()
 	_update_label()
 	queue_redraw()
+
+
+## Issue #11's skirmish loop: a battle needs a legible end, not just an empty
+## field with nothing left to click. Checked once both sides have actually
+## spawned (tick > 0) so this can't fire on the very first frame before anyone
+## exists yet.
+func _check_battle_over() -> void:
+	if _battle_over or _sim.state.tick == 0:
+		return
+	var blue_alive := false
+	var red_alive := false
+	for id in _sim.state.squadrons.keys():
+		if _sim.state.squadrons[id]["side"] == PLAYER_SIDE:
+			blue_alive = true
+		else:
+			red_alive = true
+	if blue_alive and red_alive:
+		return
+	_battle_over = true
+	_paused = true
+	if blue_alive:
+		_battle_result = "VICTORY — the enemy fleet was destroyed"
+	elif red_alive:
+		_battle_result = "DEFEAT — your fleet was wiped out"
+	else:
+		_battle_result = "MUTUAL ANNIHILATION — nobody was left standing"
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -424,6 +462,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					_paused = false; _speed = 2.0
 				KEY_3:
 					_paused = false; _speed = 4.0
+				KEY_R:
+					get_tree().change_scene_to_file("res://skirmish_menu.tscn")
 
 
 func _finish_left_drag(release_pos: Vector2) -> void:
@@ -597,6 +637,8 @@ func _update_label() -> void:
 		(", ".join(_selected) if not _selected.is_empty() else "none"),
 		blue_n, blue_str, blue_routed, red_n, red_str, red_routed,
 	]
+	if _battle_over:
+		_label.text += "\n\n%s\nPress R to return to the skirmish menu" % _battle_result
 
 
 func _draw() -> void:
