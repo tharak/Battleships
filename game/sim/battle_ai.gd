@@ -117,21 +117,42 @@ static func _mean_facing(squadrons: Dictionary, ids: Array[String]) -> float:
 	return rad_to_deg(sum.angle())
 
 
-## Splits a fleet's total strength into "left"/"right" of its own forward axis —
-## the fleet's own mean facing is what defines its flanks in the first place.
-static func _flank_split(squadrons: Dictionary, ids: Array[String]) -> Dictionary:
+## Splits a fleet's total strength AND centroid into "left"/"right" of its own
+## forward axis — the fleet's own mean facing is what defines its flanks in the
+## first place. Centroids (not just totals) matter for _order_advance: aiming at
+## the WHOLE enemy fleet's centroid is a poor stand-in for "where the threat
+## actually is" when the enemy's own deployment is lopsided rather than evenly
+## spread across its own width (e.g. a badly clumped fleet) — see that function's
+## docstring for the real case this caught.
+static func _split_details(squadrons: Dictionary, ids: Array[String]) -> Dictionary:
 	var centroid := _centroid(squadrons, ids)
 	var fwd := Vector2.RIGHT.rotated(deg_to_rad(_mean_facing(squadrons, ids)))
 	var lateral := fwd.rotated(PI / 2.0)
-	var left := 0
-	var right := 0
+	var left_strength := 0
+	var right_strength := 0
+	var left_sum := Vector2.ZERO
+	var right_sum := Vector2.ZERO
+	var left_n := 0
+	var right_n := 0
 	for id in ids:
-		var rel: Vector2 = (squadrons[id]["pos"] as Vector2) - centroid
-		if rel.dot(lateral) < 0.0:
-			left += int(squadrons[id]["strength"])
+		var pos: Vector2 = squadrons[id]["pos"]
+		if (pos - centroid).dot(lateral) < 0.0:
+			left_strength += int(squadrons[id]["strength"])
+			left_sum += pos
+			left_n += 1
 		else:
-			right += int(squadrons[id]["strength"])
-	return {"left": left, "right": right}
+			right_strength += int(squadrons[id]["strength"])
+			right_sum += pos
+			right_n += 1
+	return {
+		"left": left_strength, "right": right_strength,
+		"left_centroid": left_sum / maxi(left_n, 1), "right_centroid": right_sum / maxi(right_n, 1),
+	}
+
+
+static func _flank_split(squadrons: Dictionary, ids: Array[String]) -> Dictionary:
+	var d := _split_details(squadrons, ids)
+	return {"left": d["left"], "right": d["right"]}
 
 
 ## "Seeks flanks": only commit to a flank attack when there's an actual meaningful
@@ -143,9 +164,13 @@ static func _has_flank_opening(squadrons: Dictionary, enemy: Array[String]) -> b
 	return strong > 0 and float(weak) / float(strong) < FLANK_STRENGTH_RATIO
 
 
+## `enemy` is who this move needs to keep the flagship safest from — see
+## _protect_flagship. Every posture goes through here, so the safety check applies
+## uniformly regardless of which formation got picked.
 static func _issue_formation(state: BattleState, stream: CommandStream, ids: Array[String],
-		name: String, anchor: Vector2, facing_deg: float) -> void:
+		name: String, anchor: Vector2, facing_deg: float, enemy: Array[String]) -> void:
 	var orders := Formations.assign_orders(state.squadrons, ids, name, anchor, facing_deg, SLOT_SPACING)
+	_protect_flagship(state, orders, ids, enemy)
 	for id in ids:
 		var o: Dictionary = orders[id]
 		stream.record(Commands.make(state.tick, "order_move", {
@@ -153,6 +178,61 @@ static func _issue_formation(state: BattleState, stream: CommandStream, ids: Arr
 		}))
 
 
+## Formations.gd protects the flagship by SHAPE-centroid distance (issue #6) — a
+## good proxy for "safest slot" against a roughly symmetric threat, but it can miss
+## against a lopsided enemy deployment: aiming the whole maneuver at the enemy's
+## real centroid keeps the tactic effective against their main body (confirmed
+## empirically — aiming at just the attacked sub-cluster instead, tried first,
+## measurably weakened the AI's attack and still didn't reliably fix flagship
+## safety), but the "protected" shape-centroid slot isn't always the position
+## that's actually farthest from the nearest living enemy in world space. Rather
+## than complicate Formations (shared with the player's F1-F6) with enemy-position
+## awareness, this is a cheap AI-only fix applied after slot assignment: if some
+## other own squadron's assigned target is farther from the nearest enemy than the
+## flagship's, swap the two targets/facings outright. Caught and verified by
+## tests/test_battle_ai.gd's flagship-preservation check (Phase 0 playtesting's
+## documented "AI flagship gets sniped early" weakness, carried forward on #11).
+static func _protect_flagship(state: BattleState, orders: Dictionary, ids: Array[String], enemy: Array[String]) -> void:
+	if enemy.is_empty():
+		return
+	var flag_id := ""
+	for id in ids:
+		if state.squadrons[id]["flag"]:
+			flag_id = id
+			break
+	if flag_id == "":
+		return
+	var safest_id := flag_id
+	var safest_dist := _min_dist_to_enemy(state, orders[flag_id]["target"], enemy)
+	for id in ids:
+		if id == flag_id:
+			continue
+		var d := _min_dist_to_enemy(state, orders[id]["target"], enemy)
+		if d > safest_dist:
+			safest_dist = d
+			safest_id = id
+	if safest_id != flag_id:
+		var tmp: Dictionary = orders[flag_id]
+		orders[flag_id] = orders[safest_id]
+		orders[safest_id] = tmp
+
+
+static func _min_dist_to_enemy(state: BattleState, pos: Vector2, enemy: Array[String]) -> float:
+	var best := INF
+	for id in enemy:
+		best = minf(best, pos.distance_to((state.squadrons[id]["pos"] as Vector2)))
+	return best
+
+
+## Spindle, not Line: Line is a flat rank (every slot has fwd=0, GDD §5.4 — that's
+## the whole point of it, matching real battle-line tactics), so it has literally
+## no depth to keep a flagship behind — its flag slot is only laterally centered,
+## not held back. Spindle's flag slot sits genuinely deeper than its own leading
+## tip, which is what "keep the flagship stationed behind the engaged line, not in
+## the contact rank" (Phase 0 playtesting's flagship-preservation requirement,
+## carried forward on issue #11) actually needs while approaching/holding.
+## Caught by tests/test_battle_ai.gd's flagship-preservation check, which failed
+## with Line and passes with Spindle — not a hypothetical concern.
 static func _order_hold(state: BattleState, stream: CommandStream, own: Array[String], enemy: Array[String]) -> void:
 	var own_c := _centroid(state.squadrons, own)
 	var enemy_c := _centroid(state.squadrons, enemy)
@@ -160,7 +240,7 @@ static func _order_hold(state: BattleState, stream: CommandStream, own: Array[St
 		return  # already engaged -- let the guns do the talking, don't fidget
 	var toward: Vector2 = (enemy_c - own_c).normalized()
 	var anchor := own_c + toward * HOLD_ADVANCE_STEP
-	_issue_formation(state, stream, own, "line", anchor, rad_to_deg(toward.angle()))
+	_issue_formation(state, stream, own, "spindle", anchor, rad_to_deg(toward.angle()), enemy)
 
 
 static func _order_advance(state: BattleState, stream: CommandStream, own: Array[String], enemy: Array[String]) -> void:
@@ -171,7 +251,7 @@ static func _order_advance(state: BattleState, stream: CommandStream, own: Array
 	var weak_side: float = -1.0 if split["left"] < split["right"] else 1.0
 	var anchor := enemy_c + lateral * weak_side * FLANK_LATERAL_OFFSET - fwd * APPROACH_STANDOFF
 	var facing := (enemy_c - anchor).angle()
-	_issue_formation(state, stream, own, "crescent", anchor, rad_to_deg(facing))
+	_issue_formation(state, stream, own, "crescent", anchor, rad_to_deg(facing), enemy)
 
 
 static func _order_withdraw(state: BattleState, stream: CommandStream, own: Array[String], enemy: Array[String]) -> void:
@@ -180,4 +260,4 @@ static func _order_withdraw(state: BattleState, stream: CommandStream, own: Arra
 	var away: Vector2 = (own_c - enemy_c)
 	away = away.normalized() if away.length() > 1.0 else Vector2.RIGHT
 	var anchor := own_c + away * WITHDRAW_STEP
-	_issue_formation(state, stream, own, "column", anchor, rad_to_deg(away.angle()))
+	_issue_formation(state, stream, own, "column", anchor, rad_to_deg(away.angle()), enemy)
