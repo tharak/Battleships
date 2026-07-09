@@ -42,6 +42,8 @@ extends Node2D
 ##                        Sphere / Column (GDD §5.4)
 ##   Space               pause / resume
 ##   1 / 2 / 3           set speed to 1x / 2x / 4x
+##   scroll wheel / - =  zoom out / in (- and = are the unshifted zoom-out/in keys,
+##                       same convention as browsers/map apps)
 ##
 ## Facing convention note: Godot 2D is Y-down, so increasing degrees (standard
 ## atan2/cos/sin math) rotates CLOCKWISE on screen, not counter-clockwise. Q (turn
@@ -91,14 +93,19 @@ const SHIP_MESH_SCALE := 0.32
 const MESH_YAW_OFFSET_DEG := 270.0
 ## Orthogonal size = how much of the ground plane is visible, so this alone is the
 ## zoom control (position/tilt don't affect magnification for an orthogonal camera).
-## Tightened from 26 -> 17 so ship detail actually reads at this scene's fixed scale;
-## the demo's fleets + asteroid field still fit the frame at this size.
+## Starting value; the player can zoom live (scroll wheel / - =) between
+## CAM_ZOOM_MIN/MAX — see _zoom_by.
 const CAM_ORTHO_SIZE := 17.0
+const CAM_ZOOM_MIN := 6.0     # close enough to make out hull detail
+const CAM_ZOOM_MAX := 40.0    # zoomed out well past the original (pre-zoom-feature) framing
+const CAM_ZOOM_KEY_STEP := 2.0     # per - / = press (held keys auto-repeat via the OS)
+const CAM_ZOOM_WHEEL_STEP := 1.5   # per wheel notch — finer than a key tap
 const CAM_HEIGHT := 15.0   # camera height above the ground plane; pitch comes from look_at, not a fixed angle
 const CAM_BACK := 11.0     # camera offset toward the viewer (world +Z) from the framed center
 
 var _world3d: Node3D
 var _cam3d: Camera3D
+var _cam_zoom := CAM_ORTHO_SIZE
 var _ship_meshes: Dictionary = {}  # squadron id -> MeshInstance3D
 
 var _sim: Sim
@@ -177,7 +184,7 @@ func _setup_3d() -> void:
 
 	_cam3d = Camera3D.new()
 	_cam3d.projection = Camera3D.PROJECTION_ORTHOGONAL
-	_cam3d.size = CAM_ORTHO_SIZE
+	_cam3d.size = _cam_zoom
 	_cam3d.position = center_world + Vector3(0, CAM_HEIGHT, CAM_BACK)
 	_cam3d.current = true
 	_world3d.add_child(_cam3d)
@@ -186,6 +193,17 @@ func _setup_3d() -> void:
 	# likely why one side's ships weren't rendering at all in an early pass — the
 	# camera wasn't really aimed where the math assumed it was).
 	_cam3d.look_at(center_world, Vector3.UP)
+
+
+## Zoom is just the orthogonal camera's `size` (smaller = more magnified) — camera
+## position/tilt are untouched, so this can't ever change the framing/angle, only
+## how much of the ground plane is visible. Screen-space overlays derived from a
+## sim-space radius (command radius ring, asteroid field disc) read `_cam_zoom`
+## live so they stay correctly sized at any zoom level; SQUAD_RADIUS/SELECT_RADIUS
+## deliberately don't (they're a fixed-pixel HUD layer, see the top-of-file note).
+func _zoom_by(delta_size: float) -> void:
+	_cam_zoom = clampf(_cam_zoom + delta_size, CAM_ZOOM_MIN, CAM_ZOOM_MAX)
+	_cam3d.size = _cam_zoom
 
 
 func _sim_to_world(p: Vector2) -> Vector3:
@@ -310,6 +328,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_drag_start = null
 		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
 			_issue_group_move(_screen_to_sim(mb.position))
+		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
+			_zoom_by(-CAM_ZOOM_WHEEL_STEP)
+		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
+			_zoom_by(CAM_ZOOM_WHEEL_STEP)
 	elif event is InputEventMouseMotion and _drag_start != null:
 		_drag_current = (event as InputEventMouseMotion).position
 	elif event is InputEventKey:
@@ -323,6 +345,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif key in FORMATION_KEYS:
 			if event.pressed and not event.echo:
 				_apply_formation(FORMATION_KEYS[key])
+		elif key == KEY_MINUS or key == KEY_EQUAL:
+			# Unlike the formation keys, echo is allowed through here — holding the
+			# key should keep zooming, the same feel as holding Q/E to keep turning.
+			if event.pressed:
+				_zoom_by(CAM_ZOOM_KEY_STEP if key == KEY_MINUS else -CAM_ZOOM_KEY_STEP)
 		elif event.pressed and not event.echo:
 			match key:
 				KEY_SPACE:
@@ -571,7 +598,7 @@ func _draw() -> void:
 ## Drawn before everything else so it sits as a backdrop, not a foreground mark.
 func _draw_terrain_field(field: Dictionary) -> void:
 	var center := _project_to_screen(field["pos"])
-	var screen_radius: float = field["radius"] * SIM_TO_WORLD * (get_viewport_rect().size.y / CAM_ORTHO_SIZE)
+	var screen_radius: float = field["radius"] * SIM_TO_WORLD * (get_viewport_rect().size.y / _cam_zoom)
 	draw_circle(center, screen_radius, Color(0.45, 0.38, 0.32, 0.18))
 	draw_arc(center, screen_radius, 0.0, TAU, 40, Color(0.6, 0.52, 0.42, 0.6), 1.5)
 
@@ -587,7 +614,7 @@ func _draw_command_radius(side: int) -> void:
 	if flagship == null:
 		return
 	var side_color := Color(0.29, 0.62, 1.0) if side == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
-	var screen_radius := Command.COMMAND_RADIUS * SIM_TO_WORLD * (get_viewport_rect().size.y / CAM_ORTHO_SIZE)
+	var screen_radius := Command.COMMAND_RADIUS * SIM_TO_WORLD * (get_viewport_rect().size.y / _cam_zoom)
 	draw_arc(_project_to_screen(flagship), screen_radius, 0.0, TAU, 48,
 		Color(side_color.r, side_color.g, side_color.b, 0.25), 1.5)
 
