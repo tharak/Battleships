@@ -4,3 +4,12 @@
 # Godot 4 export artifacts
 export.cfg
 export_presets.cfg
+
+# Warship asset pack's turntable preview render — not used by the game at runtime
+# (only Warship.obj + Warship.png are loaded), 21MB, no reason to version it.
+Warship/Package/Warship.gif
+
+# Unused third-party addon (MagicaVoxel importer), extracted but not wired into the
+# game — main.gd loads Warship.obj via Godot's built-in wavefront_obj importer
+# instead. Left on disk in case it's wanted later; just not tracked for now.
+Voxel-Core-*/

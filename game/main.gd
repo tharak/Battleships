@@ -49,6 +49,8 @@ const FORMATION_KEYS := {
 	KEY_F1: "spindle", KEY_F2: "line", KEY_F3: "echelon",
 	KEY_F4: "crescent", KEY_F5: "sphere", KEY_F6: "column",
 }
+const WARSHIP_TEXTURE := preload("res://assets/warship_icon.png")
+const ICON_LENGTH := SQUAD_RADIUS * 2.4  # on-screen nose-to-tail size; height follows the texture's own aspect ratio
 
 var _sim: Sim
 var _stream: CommandStream
@@ -445,11 +447,16 @@ func _draw_squadron(id: String, sq: Dictionary) -> void:
 	if wavering:
 		draw_arc(pos, SQUAD_RADIUS - 1.0, 0.0, TAU, 20, Color(1.0, 0.82, 0.4, 0.9), 2.0)
 
-	# Hull: a triangle pointing along facing.
-	var nose := pos + Vector2(cos(facing_rad), sin(facing_rad)) * SQUAD_RADIUS
-	var back_l := pos + Vector2(cos(facing_rad + 2.5), sin(facing_rad + 2.5)) * SQUAD_RADIUS * 0.8
-	var back_r := pos + Vector2(cos(facing_rad - 2.5), sin(facing_rad - 2.5)) * SQUAD_RADIUS * 0.8
-	draw_colored_polygon(PackedVector2Array([nose, back_l, back_r]), side_color)
+	# Hull: the baked Warship model (tools/bake_warship_icon.gd renders the actual
+	# asset top-down; baked at the yaw that puts its bow on +X, matching facing=0
+	# here, so no extra rotation offset is needed). A light tint keeps the model's
+	# own detail readable while still giving a clear side cue at a glance — a full
+	# recolor would wash out the grey hull/blue trim entirely.
+	var icon_h := ICON_LENGTH * (WARSHIP_TEXTURE.get_height() as float) / (WARSHIP_TEXTURE.get_width() as float)
+	var tint := Color.WHITE.lerp(side_color, 0.35)
+	draw_set_transform(pos, facing_rad, Vector2.ONE)
+	draw_texture_rect(WARSHIP_TEXTURE, Rect2(-ICON_LENGTH / 2.0, -icon_h / 2.0, ICON_LENGTH, icon_h), false, tint)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)  # every draw call below uses absolute coords
 	if sq["flag"]:
 		draw_circle(pos, 3.0, Color.WHITE)
 
