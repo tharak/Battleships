@@ -44,6 +44,9 @@ extends Node2D
 ##   1 / 2 / 3           set speed to 1x / 2x / 4x
 ##   scroll wheel / - =  zoom out / in (- and = are the unshifted zoom-out/in keys,
 ##                       same convention as browsers/map apps)
+##   middle-click drag   orbit the camera (horizontal = spin around the battle,
+##                       vertical = tilt); the sim plane itself never moves or
+##                       rotates, only the view of it does
 ##
 ## Facing convention note: Godot 2D is Y-down, so increasing degrees (standard
 ## atan2/cos/sin math) rotates CLOCKWISE on screen, not counter-clockwise. Q (turn
@@ -102,10 +105,23 @@ const CAM_ZOOM_KEY_STEP := 2.0     # per - / = press (held keys auto-repeat via 
 const CAM_ZOOM_WHEEL_STEP := 1.5   # per wheel notch — finer than a key tap
 const CAM_HEIGHT := 15.0   # camera height above the ground plane; pitch comes from look_at, not a fixed angle
 const CAM_BACK := 11.0     # camera offset toward the viewer (world +Z) from the framed center
+## Camera orbit (middle-mouse drag): the camera sits at a fixed distance from a
+## pivot point and always look_at()s it — dragging changes azimuth (spin around
+## the pivot) and elevation (how steep the tilt is), never the distance (that's
+## what zoom is for) or the pivot itself. Elevation is clamped well short of the
+## horizon and of straight-down: this is still meant to read as "3D perspective,
+## but gameplay is 2D" (GDD §5.1), not a free-look camera.
+const CAM_ELEV_MIN_DEG := 20.0   # close to the horizon, but never quite edge-on
+const CAM_ELEV_MAX_DEG := 85.0   # close to straight-down, but never quite top-down
+const CAM_ROTATE_SENSITIVITY := 0.25  # degrees of orbit per pixel dragged
 
 var _world3d: Node3D
 var _cam3d: Camera3D
 var _cam_zoom := CAM_ORTHO_SIZE
+var _cam_pivot_world := Vector3.ZERO
+var _cam_dist := 0.0
+var _cam_azimuth_deg := 0.0
+var _cam_elev_deg := 0.0
 var _ship_meshes: Dictionary = {}  # squadron id -> MeshInstance3D
 
 var _sim: Sim
@@ -185,14 +201,14 @@ func _setup_3d() -> void:
 	_cam3d = Camera3D.new()
 	_cam3d.projection = Camera3D.PROJECTION_ORTHOGONAL
 	_cam3d.size = _cam_zoom
-	_cam3d.position = center_world + Vector3(0, CAM_HEIGHT, CAM_BACK)
 	_cam3d.current = true
 	_world3d.add_child(_cam3d)
-	# look_at, not a manually-picked rotation_degrees pitch: position+rotation set
-	# independently isn't guaranteed to actually frame center_world (this is very
-	# likely why one side's ships weren't rendering at all in an early pass — the
-	# camera wasn't really aimed where the math assumed it was).
-	_cam3d.look_at(center_world, Vector3.UP)
+
+	_cam_pivot_world = center_world
+	_cam_dist = Vector2(CAM_HEIGHT, CAM_BACK).length()
+	_cam_elev_deg = rad_to_deg(atan2(CAM_HEIGHT, CAM_BACK))
+	_cam_azimuth_deg = 0.0
+	_update_cam_orbit()
 
 
 ## Zoom is just the orthogonal camera's `size` (smaller = more magnified) — camera
@@ -204,6 +220,31 @@ func _setup_3d() -> void:
 func _zoom_by(delta_size: float) -> void:
 	_cam_zoom = clampf(_cam_zoom + delta_size, CAM_ZOOM_MIN, CAM_ZOOM_MAX)
 	_cam3d.size = _cam_zoom
+
+
+## Repositions the camera on a sphere of radius _cam_dist around _cam_pivot_world,
+## at the current azimuth/elevation, then re-aims it — orbiting never changes
+## _cam_pivot_world or _cam_dist, only where on that sphere the camera sits.
+func _update_cam_orbit() -> void:
+	var az := deg_to_rad(_cam_azimuth_deg)
+	var el := deg_to_rad(_cam_elev_deg)
+	var offset := Vector3(
+		_cam_dist * cos(el) * sin(az),
+		_cam_dist * sin(el),
+		_cam_dist * cos(el) * cos(az),
+	)
+	_cam3d.position = _cam_pivot_world + offset
+	_cam3d.look_at(_cam_pivot_world, Vector3.UP)
+
+
+## Middle-mouse drag: horizontal movement orbits azimuth, vertical adjusts
+## elevation. `relative` is already a per-event delta, so no separate drag-start
+## bookkeeping is needed (unlike the left-click selection box, which needs to draw
+## a rectangle from where the drag began).
+func _rotate_cam_by(relative: Vector2) -> void:
+	_cam_azimuth_deg = fposmod(_cam_azimuth_deg + relative.x * CAM_ROTATE_SENSITIVITY, 360.0)
+	_cam_elev_deg = clampf(_cam_elev_deg - relative.y * CAM_ROTATE_SENSITIVITY, CAM_ELEV_MIN_DEG, CAM_ELEV_MAX_DEG)
+	_update_cam_orbit()
 
 
 func _sim_to_world(p: Vector2) -> Vector3:
@@ -332,8 +373,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_zoom_by(-CAM_ZOOM_WHEEL_STEP)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			_zoom_by(CAM_ZOOM_WHEEL_STEP)
-	elif event is InputEventMouseMotion and _drag_start != null:
-		_drag_current = (event as InputEventMouseMotion).position
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		if _drag_start != null:
+			_drag_current = mm.position
+		if mm.button_mask & MOUSE_BUTTON_MASK_MIDDLE:
+			_rotate_cam_by(mm.relative)
 	elif event is InputEventKey:
 		var key := (event as InputEventKey).keycode
 		if key == KEY_Q or key == KEY_E:
