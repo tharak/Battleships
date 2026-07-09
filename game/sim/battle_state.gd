@@ -7,7 +7,8 @@ class_name BattleState
 ## Squadron fields (GDD §5.1-5.2, continuous 2D plane, not the Phase 0 hex grid):
 ##   id: String, side: int, pos: Vector2, facing: float (deg), desired_facing: float,
 ##   target: Vector2 or null (move order; null = holding), cohesion: float (0-100),
-##   strength: int, flag: bool
+##   strength: int, flag: bool, dmg_accum: float (fractional damage since the last
+##   whole point of strength was lost — GDD §5.3's "losses are always legible")
 ##
 ## Deliberate scope call: positions/angles are plain floats, not fixed-point. Bit-exact
 ## cross-machine determinism (needed for lockstep netcode) depends on sin/cos/atan2
@@ -49,6 +50,7 @@ func to_dict() -> Dictionary:
 			"cohesion": sq["cohesion"],
 			"strength": sq["strength"],
 			"flag": sq["flag"],
+			"dmg_accum": sq["dmg_accum"],
 		})
 	return {
 		"tick": tick,

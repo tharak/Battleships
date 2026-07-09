@@ -25,13 +25,19 @@ func _init(seed_value: int) -> void:
 	state = BattleState.new(seed_value)
 
 
-## Advance exactly one tick: apply commands due this tick, then step kinematics.
-## Never call anything else to mutate state — this is the determinism contract.
-func step(stream: CommandStream) -> void:
+## Advance exactly one tick: apply commands due this tick, then kinematics, then
+## combat. Never call anything else to mutate state — this is the determinism
+## contract. Returns this tick's combat events (hits/destructions) so a caller like
+## main.gd can render them (e.g. a firing beam) without re-deriving them; nothing
+## inside Sim itself depends on the return value.
+func step(stream: CommandStream) -> Array:
 	for cmd in stream.due(state.tick):
 		_apply(cmd)
-	_advance_kinematics(1.0 / TICKS_PER_SEC)
+	var dt := 1.0 / TICKS_PER_SEC
+	_advance_kinematics(dt)
+	var events := _advance_combat(dt)
 	state.tick += 1
+	return events
 
 
 func run_stream(stream: CommandStream, ticks: int) -> void:
@@ -58,6 +64,7 @@ func _apply(cmd: Dictionary) -> void:
 				"flag": bool(a["flag"]),
 				"target": null,
 				"cohesion": 100.0,
+				"dmg_accum": 0.0,
 			}
 		"order_move":
 			if state.squadrons.has(a["id"]):
@@ -105,3 +112,37 @@ func _advance_kinematics(dt: float) -> void:
 			# monotonically every tick and arrival is guaranteed to converge cleanly.
 			var step_dist: float = minf(SPEED * dt, dist)
 			sq["pos"] = sq["pos"] + to_target.normalized() * step_dist
+
+
+## Beam combat (issue #5): each squadron with a legal target (Combat.pick_target)
+## deals continuous damage every tick. Firer and target are both read from live state
+## (not a start-of-tick snapshot) — a squadron already hit earlier this same tick by
+## another firer is simply weaker for the rest of the tick, which is correct, not a
+## bug: within one tick, order is squadron-id order, same as every other pass here.
+func _advance_combat(dt: float) -> Array:
+	var events := []
+	var ids := state.squadrons.keys()
+	ids.sort()
+	for firer_id in ids:
+		if not state.squadrons.has(firer_id):
+			continue  # destroyed earlier this same pass
+		var firer: Dictionary = state.squadrons[firer_id]
+		var target_id := Combat.pick_target(firer_id, firer, state.squadrons)
+		if target_id == "":
+			continue
+		var target: Dictionary = state.squadrons[target_id]
+		var fire_mult := 1.0  # morale/waver effectiveness lands in issue #7
+		var dmg: float = Combat.damage_this_tick(firer, target, fire_mult, dt)
+		var arc := Combat.target_arc(firer["pos"], target)
+		target["dmg_accum"] += dmg
+		var whole := floori(target["dmg_accum"])
+		if whole > 0:
+			target["dmg_accum"] -= whole
+			target["strength"] = maxi(0, target["strength"] - whole)
+		events.append({"type": "hit", "firer": firer_id, "target": target_id, "arc": arc, "dmg": dmg})
+		if target["strength"] <= 0:
+			var side: int = target["side"]
+			var was_flag: bool = target["flag"]
+			state.squadrons.erase(target_id)
+			events.append({"type": "destroyed", "id": target_id, "side": side, "flag": was_flag})
+	return events

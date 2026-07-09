@@ -43,6 +43,11 @@ func _check(cond: bool, label: String) -> void:
 		print("  FAIL: ", label)
 
 
+## Kept deliberately out of Combat.RANGE of each other for the whole run (closest
+## approach is B1/R1 at their final positions, 100 vs 420 = 320 apart) — this suite
+## tests the replay/hash mechanism itself, not any particular game rule's behavior,
+## so it must stay correct regardless of what combat/morale/etc. do later. Combat has
+## its own dedicated determinism-relevant assertions in tests/test_combat.gd.
 func _scripted_stream() -> CommandStream:
 	var s := CommandStream.new()
 	s.record(Commands.make(0, "spawn", {
@@ -52,11 +57,11 @@ func _scripted_stream() -> CommandStream:
 		"id": "B2", "side": 0, "pos": [20, 70], "facing": 0.0, "strength": 4, "flag": false,
 	}))
 	s.record(Commands.make(0, "spawn", {
-		"id": "R1", "side": 1, "pos": [180, 50], "facing": 180.0, "strength": 4, "flag": true,
+		"id": "R1", "side": 1, "pos": [500, 50], "facing": 180.0, "strength": 4, "flag": true,
 	}))
 	s.record(Commands.make(1, "order_move", {"id": "B1", "target": [100, 50]}))
 	s.record(Commands.make(1, "order_move", {"id": "B2", "target": [100, 70]}))
-	s.record(Commands.make(1, "order_move", {"id": "R1", "target": [100, 50]}))
+	s.record(Commands.make(1, "order_move", {"id": "R1", "target": [420, 50]}))
 	s.record(Commands.make(40, "order_face", {"id": "B2", "facing": 90.0}))
 	s.record(Commands.make(90, "order_move", {"id": "B2", "target": [40, 20]}))
 	return s

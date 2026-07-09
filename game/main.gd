@@ -1,9 +1,12 @@
 extends Node2D
-## Interactive proving ground for squadron movement & facing (issue #4, GDD §5.1-5.2):
-## select squadrons and maneuver them around the plane, paused or at speed. This scene
-## never mutates Sim state directly — every order becomes a Command appended to
-## `_stream`, timestamped at the sim's current tick, exactly like a recorded replay
-## (GDD §11: "no direct UI-to-sim pokes").
+## Interactive proving ground for the battle-layer systems landing in Phase 1
+## (GDD §5): movement & facing (#4), beam combat (#5, GDD §5.3/§5.5) — squadrons fire
+## automatically at the nearest enemy in range and their own front arc, no manual
+## targeting; position is the whole game. This scene never mutates Sim state
+## directly — every order becomes a Command appended to `_stream`, timestamped at the
+## sim's current tick, exactly like a recorded replay (GDD §11: "no direct UI-to-sim
+## pokes"). Combat itself needs no player order at all; it's a pure consequence of
+## range + arc, read each tick from live state.
 ##
 ## Controls:
 ##   left click / drag   select your squadrons (blue, side 0)
@@ -22,10 +25,12 @@ const SELECT_RADIUS := 22.0
 const SQUAD_RADIUS := 14.0
 const TURN_STEP := 20.0   # single-tap nudge
 const HOLD_LEAD := 24.0   # degrees kept "ahead" of current facing per tick while held;
-                          # must clear TURN_RATE/TICKS_PER_SEC (one tick's max turn) by a
+						  # must clear TURN_RATE/TICKS_PER_SEC (one tick's max turn) by a
                           # comfortable margin so the lead never collapses to zero, and
                           # stay far short of 180° so the shortest-path turn never flips.
 const PLAYER_SIDE := 0
+const BEAM_COLOR := {"front": Color(1, 0.85, 0.3, 0.8), "flank": Color(1, 0.55, 0.15, 0.85),
+	"rear": Color(1, 0.2, 0.2, 0.9)}
 
 var _sim: Sim
 var _stream: CommandStream
@@ -41,6 +46,8 @@ var _drag_current := Vector2.ZERO
 var _q_held := false
 var _e_held := false
 var _turn_dir := 0  # -1 = turning left (Q), +1 = turning right (E), 0 = neither held
+
+var _fire_beams: Array = []  # this frame's [firer_id, target_id, arc] hits, for rendering only
 
 
 func _ready() -> void:
@@ -59,9 +66,11 @@ func _ready() -> void:
 
 
 func _spawn_scene() -> void:
+	# Just beyond Combat.RANGE (220) apart: nothing happens at spawn, closing the gap
+	# (or swinging wide for a flank) is a real choice, not an automatic clash.
 	var player_positions := [
-		Vector2(150, 260), Vector2(150, 320), Vector2(150, 380),
-		Vector2(90, 290), Vector2(90, 350),
+		Vector2(380, 260), Vector2(380, 320), Vector2(380, 380),
+		Vector2(320, 290), Vector2(320, 350),
 	]
 	for i in range(player_positions.size()):
 		_stream.record(Commands.make(0, "spawn", {
@@ -69,7 +78,7 @@ func _spawn_scene() -> void:
 			"facing": 0.0, "strength": 4, "flag": i == 0,
 		}))
 	var enemy_positions := [
-		Vector2(950, 260), Vector2(950, 320), Vector2(950, 380), Vector2(1010, 320),
+		Vector2(680, 260), Vector2(680, 320), Vector2(680, 380), Vector2(740, 320),
 	]
 	for i in range(enemy_positions.size()):
 		_stream.record(Commands.make(0, "spawn", {
@@ -79,6 +88,7 @@ func _spawn_scene() -> void:
 
 
 func _process(delta: float) -> void:
+	_fire_beams = []  # only ever show the current frame's beams, never stale ones
 	if not _paused:
 		_accum += delta * _speed
 		var tick_len := 1.0 / Sim.TICKS_PER_SEC
@@ -86,7 +96,9 @@ func _process(delta: float) -> void:
 			_accum -= tick_len
 			if _turn_dir != 0:
 				_hold_turn_nudge()
-			_sim.step(_stream)
+			for ev in _sim.step(_stream):
+				if ev["type"] == "hit":
+					_fire_beams.append([ev["firer"], ev["target"], ev["arc"]])
 	_update_label()
 	queue_redraw()
 
@@ -233,22 +245,43 @@ func _order_face_all_selected(offset_deg: float) -> void:
 
 func _update_label() -> void:
 	var speed_txt := "paused" if _paused else "%dx" % int(_speed)
+	var blue_n := 0; var blue_str := 0; var red_n := 0; var red_str := 0
+	for id in _sim.state.squadrons.keys():
+		var sq: Dictionary = _sim.state.squadrons[id]
+		if sq["side"] == PLAYER_SIDE:
+			blue_n += 1; blue_str += sq["strength"]
+		else:
+			red_n += 1; red_str += sq["strength"]
 	_label.text = ("tick %d   %s   hash %s   selected: %s\n" +
+		"Blue: %d squadrons, %d strength   Red: %d squadrons, %d strength\n" +
 		"drag-select (left) · move (right-click) · turn (Q/E) · speed (Space/1/2/3)") % [
 		_sim.state.tick, speed_txt, _sim.state.state_hash().left(10),
 		(", ".join(_selected) if not _selected.is_empty() else "none"),
+		blue_n, blue_str, red_n, red_str,
 	]
 
 
 func _draw() -> void:
 	if _sim == null:
 		return
+	for beam in _fire_beams:
+		_draw_beam(beam[0], beam[1], beam[2])
 	for id in _sim.state.squadrons.keys():
 		_draw_squadron(id, _sim.state.squadrons[id])
 	if _drag_start != null and (_drag_start as Vector2).distance_to(_drag_current) >= 4.0:
 		var rect := Rect2(_drag_start, Vector2.ZERO).expand(_drag_current)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.15), true)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.8), false, 1.5)
+
+
+## Arc-colored so a flank/rear hit reads at a glance, not just numerically.
+func _draw_beam(firer_id: String, target_id: String, arc: String) -> void:
+	if not _sim.state.squadrons.has(firer_id) or not _sim.state.squadrons.has(target_id):
+		return
+	var a: Vector2 = _sim.state.squadrons[firer_id]["pos"]
+	var b: Vector2 = _sim.state.squadrons[target_id]["pos"]
+	var arc_color: Color = BEAM_COLOR[arc]
+	draw_line(a, b, arc_color, 2.0)
 
 
 func _draw_squadron(id: String, sq: Dictionary) -> void:
@@ -280,3 +313,9 @@ func _draw_squadron(id: String, sq: Dictionary) -> void:
 	draw_colored_polygon(PackedVector2Array([nose, back_l, back_r]), side_color)
 	if sq["flag"]:
 		draw_circle(pos, 3.0, Color.WHITE)
+
+	# Strength pips, matching the Phase 0 prototypes' convention — losses stay legible.
+	var strength: int = sq["strength"]
+	for i in range(strength):
+		var pip_pos := pos + Vector2(-9 + i * 6, SQUAD_RADIUS + 6)
+		draw_circle(pip_pos, 2.0, Color.WHITE)
