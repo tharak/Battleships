@@ -127,6 +127,7 @@ var _hull_materials: Array[StandardMaterial3D] = []  # index by side, built once
 
 var _sim: Sim
 var _stream: CommandStream
+var _enemy_ai: BattleAI
 var _label: Label
 var _accum := 0.0
 var _speed := 1.0
@@ -157,6 +158,7 @@ func _ready() -> void:
 
 	_sim = Sim.new(SEED)
 	_stream.reset_cursor()
+	_enemy_ai = BattleAI.new(1 - PLAYER_SIDE)
 	_update_label()
 
 
@@ -310,8 +312,10 @@ func _sync_3d_visuals() -> void:
 
 ## The Phase 0 paper prototype's headline matchup (spindle vs. wide line — see
 ## docs/prototypes/battle-rules.md §10.c) as the default demo: the enemy spawns
-## already drawn up in a Wide Line, motionless (no battle AI yet — issue #10). Press
-## F1 to draw your own squadrons into a Spindle and go pierce it.
+## already drawn up in a Wide Line, then reacts under its own AI (issue #10,
+## sim/battle_ai.gd) from the very first tick — it isn't scripted to just sit
+## there anymore. Press F1 to draw your own squadrons into a Spindle and go pierce
+## it; a careless charge should lose to it, a real flank should still beat it.
 func _spawn_scene() -> void:
 	var player_positions := [
 		Vector2(380, 260), Vector2(380, 320), Vector2(380, 380),
@@ -363,6 +367,7 @@ func _process(delta: float) -> void:
 			_accum -= tick_len
 			if _turn_dir != 0:
 				_hold_turn_nudge()
+			_enemy_ai.act(_sim.state, _stream)
 			for ev in _sim.step(_stream):
 				if ev["type"] == "hit":
 					_fire_beams.append([ev["firer"], ev["target"], ev["arc"]])
@@ -520,52 +525,11 @@ func _apply_formation(name: String) -> void:
 	anchor /= live.size()
 	var facing := rad_to_deg(facing_sum.angle())
 
-	var formation := Formations.generate(name, live.size())
-	var slots: Array = formation["slots"]
-	var flag_slot: int = formation["flag"]
-
-	var order: Array[String] = []
-	var flag_id := ""
+	var orders := Formations.assign_orders(_sim.state.squadrons, live, name, anchor, facing, SLOT_SPACING)
 	for id in live:
-		if _sim.state.squadrons[id]["flag"]:
-			flag_id = id
-		else:
-			order.append(id)
-	if flag_id != "":
-		order.push_front(flag_id)  # the fleet's flagship claims the formation's own flag slot first
-
-	var remaining_slots: Array[int] = []
-	for i in range(slots.size()):
-		remaining_slots.append(i)
-	if flag_id != "":
-		remaining_slots.erase(flag_slot)
-
-	var assignment := {}  # squadron id -> slot index
-	if flag_id != "":
-		assignment[flag_id] = flag_slot
-	for id in order:
-		if id == flag_id:
-			continue
-		var pos: Vector2 = _sim.state.squadrons[id]["pos"]
-		var best_i := 0
-		var best_d := INF
-		for i in range(remaining_slots.size()):
-			var slot_idx: int = remaining_slots[i]
-			var s: Dictionary = slots[slot_idx]
-			var world := anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(facing)) * SLOT_SPACING
-			var d := pos.distance_squared_to(world)
-			if d < best_d:
-				best_d = d
-				best_i = i
-		assignment[id] = remaining_slots[best_i]
-		remaining_slots.remove_at(best_i)
-
-	for id in live:
-		var s: Dictionary = slots[assignment[id]]
-		var world := anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(facing)) * SLOT_SPACING
-		var slot_face: float = facing + s["face_offset"] if s["face_offset"] != null else facing
+		var o: Dictionary = orders[id]
 		_stream.record(Commands.make(_command_tick(id), "order_move", {
-			"id": id, "target": Commands.pos_to_array(world), "face": slot_face,
+			"id": id, "target": Commands.pos_to_array(o["target"]), "face": o["face"],
 		}))
 
 

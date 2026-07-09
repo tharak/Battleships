@@ -58,6 +58,65 @@ static func generate(name: String, n: int) -> Dictionary:
 	return {"slots": slots, "flag": _pick_flag_slot(slots)}
 
 
+## Assigns each of `ids` a world target + arrival facing for formation `name`
+## anchored at `anchor` (facing `facing_deg`) — the actual "form up" computation
+## (issue #6), factored out so both the player's UI (main.gd's F1-F6) and the
+## battle AI (issue #10) share one assignment policy instead of two copies of it.
+## The flagship (if any of `ids` is one) always claims the shape's own protected
+## flag slot first; everyone else is greedily matched to whichever remaining slot
+## is nearest their CURRENT position, so squadrons mostly walk toward the slot
+## closest to where they already are rather than crossing paths.
+## Returns id -> {"target": Vector2, "face": float}.
+static func assign_orders(squadrons: Dictionary, ids: Array, name: String, anchor: Vector2, facing_deg: float, spacing: float) -> Dictionary:
+	var formation := generate(name, ids.size())
+	var slots: Array = formation["slots"]
+	var flag_slot: int = formation["flag"]
+
+	var order: Array[String] = []
+	var flag_id := ""
+	for id in ids:
+		if squadrons[id]["flag"]:
+			flag_id = id
+		else:
+			order.append(id)
+	if flag_id != "":
+		order.push_front(flag_id)
+
+	var remaining_slots: Array[int] = []
+	for i in range(slots.size()):
+		remaining_slots.append(i)
+	if flag_id != "":
+		remaining_slots.erase(flag_slot)
+
+	var assignment := {}  # squadron id -> slot index
+	if flag_id != "":
+		assignment[flag_id] = flag_slot
+	for id in order:
+		if id == flag_id:
+			continue
+		var pos: Vector2 = squadrons[id]["pos"]
+		var best_i := 0
+		var best_d := INF
+		for i in range(remaining_slots.size()):
+			var slot_idx: int = remaining_slots[i]
+			var s: Dictionary = slots[slot_idx]
+			var world: Vector2 = anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(facing_deg)) * spacing
+			var d := pos.distance_squared_to(world)
+			if d < best_d:
+				best_d = d
+				best_i = i
+		assignment[id] = remaining_slots[best_i]
+		remaining_slots.remove_at(best_i)
+
+	var result := {}
+	for id in ids:
+		var s: Dictionary = slots[assignment[id]]
+		var world: Vector2 = anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(facing_deg)) * spacing
+		var slot_face: float = facing_deg + s["face_offset"] if s["face_offset"] != null else facing_deg
+		result[id] = {"target": world, "face": slot_face}
+	return result
+
+
 static func _pick_flag_slot(slots: Array[Dictionary]) -> int:
 	var cx := 0.0
 	var cy := 0.0
