@@ -8,14 +8,23 @@ extends Node2D
 ## Controls:
 ##   left click / drag   select your squadrons (blue, side 0)
 ##   right click         move selection to the clicked point (keeps relative spacing)
-##   Q / E               turn selection left / right in place, 20° per press
+##   Q / E               turn selection left / right; tap to nudge, hold to keep turning
 ##   Space               pause / resume
 ##   1 / 2 / 3           set speed to 1x / 2x / 4x
+##
+## Facing convention note: Godot 2D is Y-down, so increasing degrees (standard
+## atan2/cos/sin math) rotates CLOCKWISE on screen, not counter-clockwise. Q (turn
+## left/port) must therefore use a NEGATIVE delta and E (turn right/starboard) a
+## POSITIVE one — the opposite of what "increasing angle" naively suggests.
 
 const SEED := 12345
 const SELECT_RADIUS := 22.0
 const SQUAD_RADIUS := 14.0
-const TURN_STEP := 20.0
+const TURN_STEP := 20.0   # single-tap nudge
+const HOLD_LEAD := 24.0   # degrees kept "ahead" of current facing per tick while held;
+                          # must clear TURN_RATE/TICKS_PER_SEC (one tick's max turn) by a
+                          # comfortable margin so the lead never collapses to zero, and
+                          # stay far short of 180° so the shortest-path turn never flips.
 const PLAYER_SIDE := 0
 
 var _sim: Sim
@@ -28,6 +37,10 @@ var _paused := false
 var _selected: Array[String] = []
 var _drag_start = null  # Vector2 or null
 var _drag_current := Vector2.ZERO
+
+var _q_held := false
+var _e_held := false
+var _turn_dir := 0  # -1 = turning left (Q), +1 = turning right (E), 0 = neither held
 
 
 func _ready() -> void:
@@ -71,6 +84,8 @@ func _process(delta: float) -> void:
 		var tick_len := 1.0 / Sim.TICKS_PER_SEC
 		while _accum >= tick_len:
 			_accum -= tick_len
+			if _turn_dir != 0:
+				_hold_turn_nudge()
 			_sim.step(_stream)
 	_update_label()
 	queue_redraw()
@@ -90,21 +105,24 @@ func _unhandled_input(event: InputEvent) -> void:
 			_issue_group_move(mb.position)
 	elif event is InputEventMouseMotion and _drag_start != null:
 		_drag_current = (event as InputEventMouseMotion).position
-	elif event is InputEventKey and event.pressed and not event.echo:
+	elif event is InputEventKey:
 		var key := (event as InputEventKey).keycode
-		match key:
-			KEY_SPACE:
-				_paused = not _paused
-			KEY_1:
-				_paused = false; _speed = 1.0
-			KEY_2:
-				_paused = false; _speed = 2.0
-			KEY_3:
-				_paused = false; _speed = 4.0
-			KEY_Q:
-				_issue_turn(TURN_STEP)
-			KEY_E:
-				_issue_turn(-TURN_STEP)
+		if key == KEY_Q or key == KEY_E:
+			# Track held state by actual press/release transitions, not the engine's
+			# key-repeat "echo" flag (which some platforms/settings never emit at all,
+			# and which only ever reports pressed=true — release isn't echoed either
+			# way). A held key here just means "still down since the last transition".
+			_set_turn_held(key, event.pressed)
+		elif event.pressed and not event.echo:
+			match key:
+				KEY_SPACE:
+					_paused = not _paused
+				KEY_1:
+					_paused = false; _speed = 1.0
+				KEY_2:
+					_paused = false; _speed = 2.0
+				KEY_3:
+					_paused = false; _speed = 4.0
 
 
 func _finish_left_drag(release_pos: Vector2) -> void:
@@ -126,7 +144,10 @@ func _select_point(pos: Vector2) -> void:
 		if d <= best_dist:
 			best_dist = d
 			best_id = id
-	_selected = [best_id] if best_id != "" else []
+	var picked: Array[String] = []
+	if best_id != "":
+		picked.append(best_id)
+	_selected = picked
 
 
 func _select_box(a: Vector2, b: Vector2) -> void:
@@ -165,13 +186,48 @@ func _issue_group_move(click_pos: Vector2) -> void:
 		}))
 
 
-func _issue_turn(delta_deg: float) -> void:
+## Q/E are tracked as held state, not discrete key events: this is what makes holding
+## work at all (a match on "pressed and not echo" only ever fires once per press) and
+## makes tap vs. hold naturally exclusive (a tap is just a hold that releases before
+## the next sim tick's nudge fires).
+func _set_turn_held(key: int, pressed: bool) -> void:
+	if key == KEY_Q:
+		if _q_held == pressed:
+			return
+		_q_held = pressed
+	else:
+		if _e_held == pressed:
+			return
+		_e_held = pressed
+
+	var new_dir := 0
+	if _q_held and not _e_held:
+		new_dir = -1
+	elif _e_held and not _q_held:
+		new_dir = 1
+	if new_dir == _turn_dir:
+		return
+	_turn_dir = new_dir
+	if _turn_dir != 0:
+		_order_face_all_selected(TURN_STEP * _turn_dir)  # immediate feedback, tap-sized
+	else:
+		_order_face_all_selected(0.0)  # freeze exactly where it is the instant both release
+
+
+## Re-anchored to *current* facing (not accumulated onto desired_facing) every tick,
+## so the lead is always exactly HOLD_LEAD — bounded, never runs away, never risks
+## crossing 180° and flipping the shortest-path turn direction.
+func _hold_turn_nudge() -> void:
+	_order_face_all_selected(HOLD_LEAD * _turn_dir)
+
+
+func _order_face_all_selected(offset_deg: float) -> void:
 	for id in _selected:
 		if not _sim.state.squadrons.has(id):
 			continue
-		var facing: float = _sim.state.squadrons[id]["desired_facing"]
+		var facing: float = _sim.state.squadrons[id]["facing"]
 		_stream.record(Commands.make(_sim.state.tick, "order_face", {
-			"id": id, "facing": Geometry.normalize_angle(facing + delta_deg),
+			"id": id, "facing": Geometry.normalize_angle(facing + offset_deg),
 		}))
 
 
