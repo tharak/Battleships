@@ -89,7 +89,11 @@ const SHIP_MESH_SCALE := 0.32
 ## sim facing — sign found by trial, same as tools/bake_warship_icon.gd's YAW_DEG,
 ## since it's the same source mesh's local orientation either way).
 const MESH_YAW_OFFSET_DEG := 270.0
-const CAM_ORTHO_SIZE := 26.0
+## Orthogonal size = how much of the ground plane is visible, so this alone is the
+## zoom control (position/tilt don't affect magnification for an orthogonal camera).
+## Tightened from 26 -> 17 so ship detail actually reads at this scene's fixed scale;
+## the demo's fleets + asteroid field still fit the frame at this size.
+const CAM_ORTHO_SIZE := 17.0
 const CAM_HEIGHT := 15.0   # camera height above the ground plane; pitch comes from look_at, not a fixed angle
 const CAM_BACK := 11.0     # camera offset toward the viewer (world +Z) from the framed center
 
