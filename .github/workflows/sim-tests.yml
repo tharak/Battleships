@@ -33,9 +33,18 @@ jobs:
             "https://github.com/godotengine/godot/releases/download/${{ steps.godot.outputs.version }}/Godot_v${{ steps.godot.outputs.version }}_linux.x86_64.zip"
           unzip -q /tmp/godot.zip -d ~/.local/opt/godot/${{ steps.godot.outputs.version }}
 
-      - name: Run determinism test
+      - name: Import project (builds the global class_name cache)
         run: |
           set -e
           BIN=$(find ~/.local/opt/godot/${{ steps.godot.outputs.version }} -name 'Godot_*_linux.x86_64' | head -1)
           chmod +x "$BIN"
-          "$BIN" --headless --path game --script res://tests/test_determinism.gd
+          echo "GODOT_BIN=$BIN" >> "$GITHUB_ENV"
+          # A fresh checkout has no .godot/ cache (gitignored, regenerated locally on
+          # first editor open) — class_name lookups (CommandStream, Sim, ...) fail
+          # with "not declared in the current scope" until one import pass builds it.
+          "$BIN" --headless --path game --editor --quit
+
+      - name: Run determinism test
+        run: |
+          set -e
+          "$GODOT_BIN" --headless --path game --script res://tests/test_determinism.gd
