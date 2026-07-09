@@ -2,7 +2,8 @@ extends Node2D
 ## Interactive proving ground for the battle-layer systems landing in Phase 1
 ## (GDD §5): movement & facing (#4), beam combat (#5, GDD §5.3/§5.5) — squadrons fire
 ## automatically at the nearest enemy in range and their own front arc, no manual
-## targeting; position is the whole game. This scene never mutates Sim state
+## targeting; position is the whole game — and formations (#6, GDD §5.4): draw the
+## selection up into one of six named shapes. This scene never mutates Sim state
 ## directly — every order becomes a Command appended to `_stream`, timestamped at the
 ## sim's current tick, exactly like a recorded replay (GDD §11: "no direct UI-to-sim
 ## pokes"). Combat itself needs no player order at all; it's a pure consequence of
@@ -12,6 +13,8 @@ extends Node2D
 ##   left click / drag   select your squadrons (blue, side 0)
 ##   right click         move selection to the clicked point (keeps relative spacing)
 ##   Q / E               turn selection left / right; tap to nudge, hold to keep turning
+##   F1-F6               form the selection up: Spindle / Line / Echelon / Crescent /
+##                        Sphere / Column (GDD §5.4)
 ##   Space               pause / resume
 ##   1 / 2 / 3           set speed to 1x / 2x / 4x
 ##
@@ -31,6 +34,11 @@ const HOLD_LEAD := 24.0   # degrees kept "ahead" of current facing per tick whil
 const PLAYER_SIDE := 0
 const BEAM_COLOR := {"front": Color(1, 0.85, 0.3, 0.8), "flank": Color(1, 0.55, 0.15, 0.85),
 	"rear": Color(1, 0.2, 0.2, 0.9)}
+const SLOT_SPACING := 30.0  # plane units between adjacent formation slots
+const FORMATION_KEYS := {
+	KEY_F1: "spindle", KEY_F2: "line", KEY_F3: "echelon",
+	KEY_F4: "crescent", KEY_F5: "sphere", KEY_F6: "column",
+}
 
 var _sim: Sim
 var _stream: CommandStream
@@ -65,9 +73,11 @@ func _ready() -> void:
 	_update_label()
 
 
+## The Phase 0 paper prototype's headline matchup (spindle vs. wide line — see
+## docs/prototypes/battle-rules.md §10.c) as the default demo: the enemy spawns
+## already drawn up in a Wide Line, motionless (no battle AI yet — issue #10). Press
+## F1 to draw your own squadrons into a Spindle and go pierce it.
 func _spawn_scene() -> void:
-	# Just beyond Combat.RANGE (220) apart: nothing happens at spawn, closing the gap
-	# (or swinging wide for a flank) is a real choice, not an automatic clash.
 	var player_positions := [
 		Vector2(380, 260), Vector2(380, 320), Vector2(380, 380),
 		Vector2(320, 290), Vector2(320, 350),
@@ -77,13 +87,17 @@ func _spawn_scene() -> void:
 			"id": "B%d" % (i + 1), "side": 0, "pos": Commands.pos_to_array(player_positions[i]),
 			"facing": 0.0, "strength": 4, "flag": i == 0,
 		}))
-	var enemy_positions := [
-		Vector2(680, 260), Vector2(680, 320), Vector2(680, 380), Vector2(740, 320),
-	]
-	for i in range(enemy_positions.size()):
+
+	var enemy_anchor := Vector2(700, 320)
+	var enemy_facing := 180.0
+	var line := Formations.generate("line", player_positions.size())
+	var slots: Array = line["slots"]
+	for i in range(slots.size()):
+		var s: Dictionary = slots[i]
+		var pos: Vector2 = enemy_anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(enemy_facing)) * SLOT_SPACING
 		_stream.record(Commands.make(0, "spawn", {
-			"id": "R%d" % (i + 1), "side": 1, "pos": Commands.pos_to_array(enemy_positions[i]),
-			"facing": 180.0, "strength": 4, "flag": i == 0,
+			"id": "R%d" % (i + 1), "side": 1, "pos": Commands.pos_to_array(pos),
+			"facing": enemy_facing, "strength": 4, "flag": i == line["flag"],
 		}))
 
 
@@ -125,6 +139,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			# and which only ever reports pressed=true — release isn't echoed either
 			# way). A held key here just means "still down since the last transition".
 			_set_turn_held(key, event.pressed)
+		elif key in FORMATION_KEYS:
+			if event.pressed and not event.echo:
+				_apply_formation(FORMATION_KEYS[key])
 		elif event.pressed and not event.echo:
 			match key:
 				KEY_SPACE:
@@ -198,6 +215,73 @@ func _issue_group_move(click_pos: Vector2) -> void:
 		}))
 
 
+## Draw the selection up into a named formation (issue #6, GDD §5.4). This is pure
+## order generation on top of the existing order_move+face — see
+## sim/formations.gd's docstring for why "reforming takes time and drops cohesion"
+## needs no dedicated mechanic: it's just travel time and the existing turn-cohesion
+## cost, applied to squadrons headed for a formation slot instead of a bare point.
+func _apply_formation(name: String) -> void:
+	var live := _selected.filter(func(id): return _sim.state.squadrons.has(id))
+	if live.is_empty():
+		return
+	var anchor := Vector2.ZERO
+	var facing_sum := Vector2.ZERO  # circular mean: average unit vectors, not degrees
+	for id in live:
+		var sq: Dictionary = _sim.state.squadrons[id]
+		anchor += sq["pos"]
+		facing_sum += Vector2.RIGHT.rotated(deg_to_rad(sq["facing"]))
+	anchor /= live.size()
+	var facing := rad_to_deg(facing_sum.angle())
+
+	var formation := Formations.generate(name, live.size())
+	var slots: Array = formation["slots"]
+	var flag_slot: int = formation["flag"]
+
+	var order: Array[String] = []
+	var flag_id := ""
+	for id in live:
+		if _sim.state.squadrons[id]["flag"]:
+			flag_id = id
+		else:
+			order.append(id)
+	if flag_id != "":
+		order.push_front(flag_id)  # the fleet's flagship claims the formation's own flag slot first
+
+	var remaining_slots: Array[int] = []
+	for i in range(slots.size()):
+		remaining_slots.append(i)
+	if flag_id != "":
+		remaining_slots.erase(flag_slot)
+
+	var assignment := {}  # squadron id -> slot index
+	if flag_id != "":
+		assignment[flag_id] = flag_slot
+	for id in order:
+		if id == flag_id:
+			continue
+		var pos: Vector2 = _sim.state.squadrons[id]["pos"]
+		var best_i := 0
+		var best_d := INF
+		for i in range(remaining_slots.size()):
+			var slot_idx: int = remaining_slots[i]
+			var s: Dictionary = slots[slot_idx]
+			var world := anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(facing)) * SLOT_SPACING
+			var d := pos.distance_squared_to(world)
+			if d < best_d:
+				best_d = d
+				best_i = i
+		assignment[id] = remaining_slots[best_i]
+		remaining_slots.remove_at(best_i)
+
+	for id in live:
+		var s: Dictionary = slots[assignment[id]]
+		var world := anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(facing)) * SLOT_SPACING
+		var slot_face: float = facing + s["face_offset"] if s["face_offset"] != null else facing
+		_stream.record(Commands.make(_sim.state.tick, "order_move", {
+			"id": id, "target": Commands.pos_to_array(world), "face": slot_face,
+		}))
+
+
 ## Q/E are tracked as held state, not discrete key events: this is what makes holding
 ## work at all (a match on "pressed and not echo" only ever fires once per press) and
 ## makes tap vs. hold naturally exclusive (a tap is just a hold that releases before
@@ -254,7 +338,7 @@ func _update_label() -> void:
 			red_n += 1; red_str += sq["strength"]
 	_label.text = ("tick %d   %s   hash %s   selected: %s\n" +
 		"Blue: %d squadrons, %d strength   Red: %d squadrons, %d strength\n" +
-		"drag-select (left) · move (right-click) · turn (Q/E) · speed (Space/1/2/3)") % [
+		"drag-select (left) · move (right-click) · turn (Q/E) · form up (F1-F6) · speed (Space/1/2/3)") % [
 		_sim.state.tick, speed_txt, _sim.state.state_hash().left(10),
 		(", ".join(_selected) if not _selected.is_empty() else "none"),
 		blue_n, blue_str, red_n, red_str,

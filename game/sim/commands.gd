@@ -8,7 +8,10 @@ class_name Commands
 ##
 ## Kinds:
 ##   "spawn"      a: {id, side, pos: [x,y], facing (deg), strength, flag}
-##   order_move   a: {id, target: [x,y]}   -- squadron turns toward and walks to target
+##   order_move   a: {id, target: [x,y], face (deg, optional)} -- turns toward and
+##                walks to target; if "face" is given, keeps turning to face it after
+##                arrival (formation orders use this to land on a slot pointed the
+##                right way — see sim/formations.gd)
 ##   order_face   a: {id, facing (deg)}    -- squadron turns to face in place, holds
 
 const KINDS := ["spawn", "order_move", "order_face"]

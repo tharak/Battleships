@@ -63,12 +63,18 @@ func _apply(cmd: Dictionary) -> void:
 				"strength": int(a["strength"]),
 				"flag": bool(a["flag"]),
 				"target": null,
+				"arrive_facing": null,
 				"cohesion": 100.0,
 				"dmg_accum": 0.0,
 			}
 		"order_move":
 			if state.squadrons.has(a["id"]):
-				state.squadrons[a["id"]]["target"] = Commands.array_to_pos(a["target"])
+				var sq: Dictionary = state.squadrons[a["id"]]
+				sq["target"] = Commands.array_to_pos(a["target"])
+				# Always overwrite (never leave a stale facing goal from an earlier
+				# order): absent "face" means "arrive and hold whatever heading
+				# travel left you with", same as before this field existed.
+				sq["arrive_facing"] = Geometry.normalize_angle(float(a["face"])) if a.has("face") else null
 		"order_face":
 			if state.squadrons.has(a["id"]):
 				var sq: Dictionary = state.squadrons[a["id"]]
@@ -104,6 +110,8 @@ func _advance_kinematics(dt: float) -> void:
 		if dist <= ARRIVE_EPS:
 			sq["pos"] = target
 			sq["target"] = null
+			if sq["arrive_facing"] != null:
+				sq["desired_facing"] = sq["arrive_facing"]
 			continue
 
 		if Geometry.rel_angle(sq["facing"], sq["pos"], target) <= FACE_TOLERANCE:
