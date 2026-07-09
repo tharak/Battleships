@@ -842,9 +842,9 @@ day one.
 2. **Phase 0:** Right W range — is 3–12 seats the correct span, and is the survival
    threshold a constant or itself draw-randomized?
 3. **Phase 1:** Squadron count per side — 8 or 20? (Command load vs. spectacle.)
-4. **Phase 2:** Strategic layer: continuous ticked time vs. discrete turns? (Draft
-   assumes ticked-pausable; turns are the fallback if simultaneity confuses — and would
-   simplify future multiplayer.)
+4. ~~**Phase 2:** Strategic layer: continuous ticked time vs. discrete turns?~~
+   **RESOLVED (issue #12): ticked-pausable**, matching the draft default and the
+   battle layer's existing real-time-with-pause UX (1 tick = 1 week, §2).
 5. **Phase 3:** Do ground invasions need any player interaction beyond the siege timer?
 6. **Phase 4:** On removal from power: hard game over with epilogue, or an optional
    "exile/comeback" mode? (Draft assumes hard game over — cleaner stakes; comeback is a
