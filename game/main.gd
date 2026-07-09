@@ -19,6 +19,14 @@ extends Node2D
 ## morale need no player order at all; they're a pure consequence of range, arc,
 ## losses, and command radius, read each tick from live state.
 ##
+## Rendering is 2.5D (GDD §5.1: "rendered in 3D perspective, but gameplay is 2D" —
+## the sim plane never stopped being flat; only how it's drawn changed): squadron
+## hulls are the real Warship.vox model rendered live on a tilted orthogonal camera,
+## while selection/morale/cohesion rings, the front-arc wedge, beams, pips, and the
+## command-radius ring stay the same 2D draw calls they always were, just anchored
+## at each squadron's screen-projected position. See _setup_3d's docstring for the
+## camera/projection details.
+##
 ## Controls:
 ##   left click / drag   select your squadrons (blue, side 0)
 ##   right click         move selection to the clicked point (keeps relative spacing)
@@ -49,8 +57,38 @@ const FORMATION_KEYS := {
 	KEY_F1: "spindle", KEY_F2: "line", KEY_F3: "echelon",
 	KEY_F4: "crescent", KEY_F5: "sphere", KEY_F6: "column",
 }
-const WARSHIP_TEXTURE := preload("res://assets/warship_icon.png")
-const ICON_LENGTH := SQUAD_RADIUS * 2.4  # on-screen nose-to-tail size; height follows the texture's own aspect ratio
+## 2.5D rendering (the sim plane stays flat, GDD §5.1's "3D perspective, but gameplay
+## is 2D" — a Node2D scene can host a Node3D subtree directly: Godot renders the 3D
+## content first, then composites this script's own _draw() CanvasItem calls on top
+## in the same window, no SubViewport/compositing trick needed). Squadron hulls are
+## real MeshInstance3D nodes using the live Warship.vox mesh; everything else
+## (selection/morale/cohesion rings, the wavering outline, the front-arc wedge,
+## beams, pips, the command-radius ring) stays exactly the 2D drawing it always was,
+## just anchored at each squadron's PROJECTED screen position instead of its raw sim
+## position, via Camera3D.unproject_position. Those overlays are deliberately a flat
+## schematic HUD layer, not physically ground-projected shapes — a fixed pixel radius
+## drawn at a projected point, not a "true" perspective ellipse/quad. That's a
+## conscious scope line (confirmed with the user), not an oversight.
+const WARSHIP_MESH := preload("res://Warship/Package/Warship.vox")
+const SIM_TO_WORLD := 0.028      # sim-plane units -> 3D world units
+## The imported mesh is already ~7.5 world units long (same physical size as the
+## OBJ export: both preserve the source model's real dimensions) — this is an
+## ADDITIONAL scale on top of that, not a replacement for it. Sized so a ship reads
+## as a small icon relative to the battle plane, roughly matching the old 2D
+## SQUAD_RADIUS's proportion to the play area.
+const SHIP_MESH_SCALE := 0.32
+## Yaw (deg) that makes the mesh's bow point along world +X, matching the sim's
+## facing=0 convention (so a squadron's world rotation is just this offset minus its
+## sim facing — sign found by trial, same as tools/bake_warship_icon.gd's YAW_DEG,
+## since it's the same source mesh's local orientation either way).
+const MESH_YAW_OFFSET_DEG := 270.0
+const CAM_ORTHO_SIZE := 26.0
+const CAM_HEIGHT := 15.0   # camera height above the ground plane; pitch comes from look_at, not a fixed angle
+const CAM_BACK := 11.0     # camera offset toward the viewer (world +Z) from the framed center
+
+var _world3d: Node3D
+var _cam3d: Camera3D
+var _ship_meshes: Dictionary = {}  # squadron id -> MeshInstance3D
 
 var _sim: Sim
 var _stream: CommandStream
@@ -60,7 +98,7 @@ var _speed := 1.0
 var _paused := false
 
 var _selected: Array[String] = []
-var _drag_start = null  # Vector2 or null
+var _drag_start = null  # Vector2 or null (raw screen coords, for the drag-box visual only)
 var _drag_current := Vector2.ZERO
 
 var _q_held := false
@@ -77,12 +115,113 @@ func _ready() -> void:
 	_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # never eat clicks meant for the plane
 	add_child(_label)
 
+	_setup_3d()
+
 	_stream = CommandStream.new()
 	_spawn_scene()
 
 	_sim = Sim.new(SEED)
 	_stream.reset_cursor()
 	_update_label()
+
+
+## Fixed frame, no pan/zoom yet (matches the existing 2D game's fixed-canvas
+## behavior) — centered roughly on where the demo scene's fleets actually meet.
+## Orthogonal, not perspective: a tilted orthogonal camera gives the same "2.5D"
+## depth/parallax read (classic oblique/isometric RTS look) without introducing
+## distance-dependent scale, which keeps the 2D overlay's fixed-pixel-radius rings
+## looking consistent regardless of how far back a squadron is.
+func _setup_3d() -> void:
+	const CENTER_SIM := Vector2(500, 320)
+	var center_world := _sim_to_world(CENTER_SIM)
+
+	_world3d = Node3D.new()
+	add_child(_world3d)
+	move_child(_world3d, 0)  # 3D renders first; this script's _draw() composites on top regardless
+
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = Color(0.03, 0.035, 0.06)
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.55, 0.6, 0.7)
+	e.ambient_light_energy = 0.8
+	env.environment = e
+	_world3d.add_child(env)
+
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-55, -35, 0)
+	key_light.light_energy = 1.1
+	_world3d.add_child(key_light)
+
+	var ground := MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(46, 30)
+	ground.mesh = plane
+	var ground_mat := StandardMaterial3D.new()
+	ground_mat.albedo_color = Color(0.05, 0.08, 0.14)
+	ground.material_override = ground_mat
+	ground.position = Vector3(center_world.x, -0.05, center_world.z)
+	_world3d.add_child(ground)
+
+	_cam3d = Camera3D.new()
+	_cam3d.projection = Camera3D.PROJECTION_ORTHOGONAL
+	_cam3d.size = CAM_ORTHO_SIZE
+	_cam3d.position = center_world + Vector3(0, CAM_HEIGHT, CAM_BACK)
+	_cam3d.current = true
+	_world3d.add_child(_cam3d)
+	# look_at, not a manually-picked rotation_degrees pitch: position+rotation set
+	# independently isn't guaranteed to actually frame center_world (this is very
+	# likely why one side's ships weren't rendering at all in an early pass — the
+	# camera wasn't really aimed where the math assumed it was).
+	_cam3d.look_at(center_world, Vector3.UP)
+
+
+func _sim_to_world(p: Vector2) -> Vector3:
+	return Vector3(p.x * SIM_TO_WORLD, 0.0, p.y * SIM_TO_WORLD)
+
+
+func _project_to_screen(sim_pos: Vector2) -> Vector2:
+	return _cam3d.unproject_position(_sim_to_world(sim_pos))
+
+
+## The one place a genuinely new world point (not an existing squadron's already-
+## known position) needs to come from a screen click: intersect the camera ray with
+## the sim's ground plane (world Y=0). Selection stays in screen space instead (see
+## _select_point/_select_box) — projecting known points forward is simpler and exact
+## regardless of tilt; only "where did the player click on the ground" needs this.
+func _screen_to_sim(screen_pos: Vector2) -> Vector2:
+	var from := _cam3d.project_ray_origin(screen_pos)
+	var dir := _cam3d.project_ray_normal(screen_pos)
+	if absf(dir.y) < 0.0001:
+		return Vector2(from.x, from.z) / SIM_TO_WORLD
+	var t := -from.y / dir.y
+	var hit := from + dir * t
+	return Vector2(hit.x, hit.z) / SIM_TO_WORLD
+
+
+## Keeps one MeshInstance3D per live squadron in sync with sim state — spawned on
+## first sight, freed the tick a squadron is no longer in state.squadrons (destroyed
+## or never existed). Facing maps sim degrees to a world Y-rotation; sign/offset
+## found by trial exactly like the bake tool's YAW_DEG (see MESH_YAW_OFFSET_DEG).
+func _sync_3d_visuals() -> void:
+	var seen := {}
+	for id in _sim.state.squadrons.keys():
+		seen[id] = true
+		var sq: Dictionary = _sim.state.squadrons[id]
+		var mi: MeshInstance3D = _ship_meshes.get(id)
+		if mi == null:
+			mi = MeshInstance3D.new()
+			mi.mesh = WARSHIP_MESH
+			mi.scale = Vector3.ONE * SHIP_MESH_SCALE
+			_world3d.add_child(mi)
+			_ship_meshes[id] = mi
+		mi.position = _sim_to_world(sq["pos"])
+		mi.rotation_degrees.y = MESH_YAW_OFFSET_DEG - sq["facing"]
+	for id in _ship_meshes.keys().duplicate():
+		if not seen.has(id):
+			(_ship_meshes[id] as MeshInstance3D).queue_free()
+			_ship_meshes.erase(id)
 
 
 ## The Phase 0 paper prototype's headline matchup (spindle vs. wide line — see
@@ -125,6 +264,7 @@ func _process(delta: float) -> void:
 			for ev in _sim.step(_stream):
 				if ev["type"] == "hit":
 					_fire_beams.append([ev["firer"], ev["target"], ev["arc"]])
+	_sync_3d_visuals()
 	_update_label()
 	queue_redraw()
 
@@ -140,7 +280,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_finish_left_drag(mb.position)
 				_drag_start = null
 		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
-			_issue_group_move(mb.position)
+			_issue_group_move(_screen_to_sim(mb.position))
 	elif event is InputEventMouseMotion and _drag_start != null:
 		_drag_current = (event as InputEventMouseMotion).position
 	elif event is InputEventKey:
@@ -176,12 +316,17 @@ func _finish_left_drag(release_pos: Vector2) -> void:
 		_select_box(start, release_pos)
 
 
-func _select_point(pos: Vector2) -> void:
+## Selection compares SCREEN-space positions (projecting each squadron's known sim
+## position forward), not sim-space — exact regardless of camera tilt, and avoids
+## ever needing the (perspective-distorting) inverse conversion for a selection box.
+## Only the right-click "move to this ground point" genuinely needs the inverse
+## (_screen_to_sim), since that's the one case with no existing point to project.
+func _select_point(screen_pos: Vector2) -> void:
 	var best_id := ""
 	var best_dist := SELECT_RADIUS
 	for id in _player_squadron_ids():
 		var sq: Dictionary = _sim.state.squadrons[id]
-		var d: float = (sq["pos"] as Vector2).distance_to(pos)
+		var d: float = _project_to_screen(sq["pos"]).distance_to(screen_pos)
 		if d <= best_dist:
 			best_dist = d
 			best_id = id
@@ -191,12 +336,12 @@ func _select_point(pos: Vector2) -> void:
 	_selected = picked
 
 
-func _select_box(a: Vector2, b: Vector2) -> void:
-	var rect := Rect2(a, Vector2.ZERO).expand(b)
+func _select_box(screen_a: Vector2, screen_b: Vector2) -> void:
+	var rect := Rect2(screen_a, Vector2.ZERO).expand(screen_b)
 	var picked: Array[String] = []
 	for id in _player_squadron_ids():
 		var sq: Dictionary = _sim.state.squadrons[id]
-		if rect.has_point(sq["pos"]):
+		if rect.has_point(_project_to_screen(sq["pos"])):
 			picked.append(id)
 	_selected = picked
 
@@ -391,27 +536,33 @@ func _draw() -> void:
 
 
 ## Issue #8's whole point made visible: where you place the flagship IS the shape of
-## this circle. Drawn first (under everything else) so it reads as a zone, not a mark.
+## this circle. Drawn first (under everything else) so it reads as a zone, not a
+## mark. A fixed screen-pixel radius at the flagship's projected position — not a
+## "true" ground-projected ellipse; see the 2.5D rendering note at the top of this
+## file for why that's a deliberate scope line for every overlay in this function
+## and the ones below it, not just this one.
 func _draw_command_radius(side: int) -> void:
 	var flagship: Variant = Command.flagship_pos(side, _sim.state.squadrons)
 	if flagship == null:
 		return
 	var side_color := Color(0.29, 0.62, 1.0) if side == PLAYER_SIDE else Color(1.0, 0.35, 0.35)
-	draw_arc(flagship, Command.COMMAND_RADIUS, 0.0, TAU, 48, Color(side_color.r, side_color.g, side_color.b, 0.25), 1.5)
+	var screen_radius := Command.COMMAND_RADIUS * SIM_TO_WORLD * (get_viewport_rect().size.y / CAM_ORTHO_SIZE)
+	draw_arc(_project_to_screen(flagship), screen_radius, 0.0, TAU, 48,
+		Color(side_color.r, side_color.g, side_color.b, 0.25), 1.5)
 
 
 ## Arc-colored so a flank/rear hit reads at a glance, not just numerically.
 func _draw_beam(firer_id: String, target_id: String, arc: String) -> void:
 	if not _sim.state.squadrons.has(firer_id) or not _sim.state.squadrons.has(target_id):
 		return
-	var a: Vector2 = _sim.state.squadrons[firer_id]["pos"]
-	var b: Vector2 = _sim.state.squadrons[target_id]["pos"]
+	var a := _project_to_screen(_sim.state.squadrons[firer_id]["pos"])
+	var b := _project_to_screen(_sim.state.squadrons[target_id]["pos"])
 	var arc_color: Color = BEAM_COLOR[arc]
 	draw_line(a, b, arc_color, 2.0)
 
 
 func _draw_squadron(id: String, sq: Dictionary) -> void:
-	var pos: Vector2 = sq["pos"]
+	var pos := _project_to_screen(sq["pos"])
 	var facing_rad := deg_to_rad(sq["facing"])
 	var routed: bool = sq["routed"]
 	var wavering: bool = Morale.is_wavering(sq)
@@ -447,16 +598,8 @@ func _draw_squadron(id: String, sq: Dictionary) -> void:
 	if wavering:
 		draw_arc(pos, SQUAD_RADIUS - 1.0, 0.0, TAU, 20, Color(1.0, 0.82, 0.4, 0.9), 2.0)
 
-	# Hull: the baked Warship model (tools/bake_warship_icon.gd renders the actual
-	# asset top-down; baked at the yaw that puts its bow on +X, matching facing=0
-	# here, so no extra rotation offset is needed). A light tint keeps the model's
-	# own detail readable while still giving a clear side cue at a glance — a full
-	# recolor would wash out the grey hull/blue trim entirely.
-	var icon_h := ICON_LENGTH * (WARSHIP_TEXTURE.get_height() as float) / (WARSHIP_TEXTURE.get_width() as float)
-	var tint := Color.WHITE.lerp(side_color, 0.35)
-	draw_set_transform(pos, facing_rad, Vector2.ONE)
-	draw_texture_rect(WARSHIP_TEXTURE, Rect2(-ICON_LENGTH / 2.0, -icon_h / 2.0, ICON_LENGTH, icon_h), false, tint)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)  # every draw call below uses absolute coords
+	# The hull itself is now a real MeshInstance3D (_sync_3d_visuals), not drawn here
+	# at all — this function only overlays the schematic 2D HUD on top of it.
 	if sq["flag"]:
 		draw_circle(pos, 3.0, Color.WHITE)
 
