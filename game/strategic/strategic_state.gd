@@ -26,10 +26,15 @@ class_name StrategicState
 ## `system_owner`: id -> side (-1 = neutral/contested), seeded from Galaxy's
 ## static data and (in a later issue) mutated by battle outcomes/invasions —
 ## issue #12 itself never changes ownership, just seeds and reads it for intel.
+##
+## `materiel`: side (int) -> float stockpile (issue #15, GDD §4.2/§4.4) — accrues
+## passively per owned system (strategic/shipyard.gd's accrue) and is spent
+## rebuilding docked fleets' lost strength (shipyard.gd's rebuild).
 
 var tick: int = 0  # weeks
 var fleets: Dictionary = {}  # id -> Dictionary
 var system_owner: Dictionary = {}  # id (String) -> int side
+var materiel: Dictionary = {0: 0.0, 1: 0.0}
 
 
 func _init() -> void:

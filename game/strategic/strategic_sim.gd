@@ -21,16 +21,18 @@ func _init() -> void:
 
 
 ## Advance exactly one tick: apply due commands, then move fleets, then settle
-## supply (issue #13) against wherever fleets ended up THIS tick — matches
-## sim/sim.gd's combat-then-morale ordering (a later system reads the current
-## tick's outcome from the earlier one, not last tick's stale state). Returns
-## this tick's events (currently just "arrived") so a caller can react without
-## re-deriving them, same convention as sim/sim.gd's step().
+## supply (issue #13) and the economy/rebuild (issue #15) against wherever
+## fleets ended up THIS tick — matches sim/sim.gd's combat-then-morale
+## ordering (a later system reads the current tick's outcome from the earlier
+## one, not last tick's stale state). Returns this tick's events (currently
+## just "arrived") so a caller can react without re-deriving them, same
+## convention as sim/sim.gd's step().
 func step(stream: StrategicCommandStream) -> Array:
 	for cmd in stream.due(state.tick):
 		_apply(cmd)
 	var events := _advance_fleets()
 	_advance_supply()
+	_advance_economy()
 	state.tick += 1
 	return events
 
@@ -40,6 +42,14 @@ func _advance_supply() -> void:
 	ids.sort()
 	for id in ids:
 		Supply.advance(state, id)
+
+
+func _advance_economy() -> void:
+	Shipyard.accrue(state)
+	var ids := state.fleets.keys()
+	ids.sort()
+	for id in ids:
+		Shipyard.rebuild(state, id)
 
 
 func run_stream(stream: StrategicCommandStream, ticks: int) -> void:

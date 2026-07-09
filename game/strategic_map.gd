@@ -142,10 +142,16 @@ func _update_label() -> void:
 	var speed_txt := "paused" if _paused else "%dx" % int(_speed)
 	var fleet_txt := "none"
 	if _selected_fleet != "" and _sim.state.fleets.has(_selected_fleet):
-		fleet_txt = "%s (supply %d%%)" % [_selected_fleet, int(_sim.state.fleets[_selected_fleet]["supply"])]
+		var f: Dictionary = _sim.state.fleets[_selected_fleet]
+		var max_strength := FleetPresets.total_strength(f.get("preset", FleetPresets.DEFAULT))
+		fleet_txt = "%s (supply %d%%, strength %d/%d)" % [_selected_fleet, int(f["supply"]), int(f["strength"]), max_strength]
 	_label.text = ("Week %d   %s   selected fleet: %s\n" +
+		"Materiel — yours: %d   enemy: %d\n" +
 		"left-click a fleet to select it, left-click a system to send it there\n" +
-		"Space pause/resume · 1/2/3 speed") % [_sim.state.tick, speed_txt, fleet_txt]
+		"Space pause/resume · 1/2/3 speed") % [
+			_sim.state.tick, speed_txt, fleet_txt,
+			int(_sim.state.materiel.get(PLAYER_SIDE, 0.0)), int(_sim.state.materiel.get(1 - PLAYER_SIDE, 0.0)),
+		]
 
 
 func _draw() -> void:
@@ -170,6 +176,13 @@ func _draw() -> void:
 		draw_circle(pos, SYSTEM_RADIUS, color)
 		draw_arc(pos, SYSTEM_RADIUS, 0.0, TAU, 24, Color(1, 1, 1, 0.5 if seen else 0.15), 1.5)
 		draw_string(ThemeDB.fallback_font, pos + Vector2(-SYSTEM_RADIUS, SYSTEM_RADIUS + 14), id)
+		# Shipyard marker (issue #15): a small gold square, only drawn where it
+		# actually applies -- a shipyard whose realm no longer owns the system
+		# isn't a functioning shipyard for anyone (Shipyard.rebuild checks
+		# ownership too, so this stays visually consistent with the mechanic).
+		if Shipyard.SHIPYARDS.has(id) and Shipyard.SHIPYARDS[id] == owner:
+			var s := SYSTEM_RADIUS * 0.6
+			draw_rect(Rect2(pos - Vector2(s, s) / 2.0, Vector2(s, s)), Color(1.0, 0.85, 0.2, 0.9 if seen else 0.25), false, 2.0)
 
 	for fid in _sim.state.fleets.keys():
 		var f: Dictionary = _sim.state.fleets[fid]
