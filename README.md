@@ -29,13 +29,27 @@ the game is multiplayer-ready (deterministic lockstep) from day one.
 
 - **Run the battle plane scene:** `godot --path game` (open the project; `main.tscn`
   runs automatically) or `godot --path game main.tscn` from the CLI. Select your
-  squadrons (blue) by click or drag-box, right-click to move them, Q/E to turn in
-  place, Space to pause, 1/2/3 for 1x/2x/4x speed — orders queue up while paused.
-- **Run the tests:**
-  `godot --headless --path game --script res://tests/test_determinism.gd` replays a
-  recorded command stream and checks the resulting state hash against a committed
-  golden fixture (`game/tests/fixtures/`); `res://tests/test_movement.gd` checks the
-  movement/turning/cohesion kinematics themselves (arrival, no-overshoot turning,
-  cohesion dropping while turning and regenerating while steady). Both run in CI on
-  every push/PR that touches `game/` ([sim-tests workflow](.github/workflows/sim-tests.yml)).
+  squadrons (blue) by click or drag-box, right-click to move them (keeps relative
+  spacing), Q/E to turn in place (tap to nudge, hold to keep turning), F1–F6 to draw
+  the selection up into a formation (Spindle/Line/Echelon/Crescent/Sphere/Column —
+  the enemy spawns already drawn up in a Wide Line, so F1 sets up the Phase 0
+  playtest's headline spindle-vs-line matchup), Space to pause, 1/2/3 for 1x/2x/4x
+  speed — orders queue up while paused. Squadrons fight automatically (no manual
+  targeting) whenever an enemy is in range and their own front arc; morale drains
+  from losses (worse from the flank/rear), a squadron below half wavers (gold
+  outline), and at zero it routs (dimmed grey, flees under its own autopilot) until
+  it disengages far enough to rally. Each flagship projects a command radius
+  (translucent ring) — squadrons inside it recover morale faster and answer orders
+  immediately; outside, orders take a couple of seconds to arrive, and losing the
+  flagship is a fleet-wide morale shock with a permanent regen penalty afterward.
+- **Run the tests:** every `game/tests/test_*.gd` is a standalone headless script,
+  e.g. `godot --headless --path game --script res://tests/test_determinism.gd`.
+  `test_determinism.gd` replays a recorded command stream and checks the resulting
+  state hash against a committed golden fixture (`game/tests/fixtures/`);
+  `test_movement.gd`, `test_combat.gd`, `test_formations.gd`, `test_morale.gd`, and
+  `test_command.gd` cover each battle-layer system in turn, and `test_main_scene.gd`
+  instantiates the real `main.tscn` to exercise input-adjacent methods directly
+  rather than reimplementing their logic in the test. All of them run in CI on every
+  push/PR that touches `game/` ([sim-tests workflow](.github/workflows/sim-tests.yml),
+  which auto-discovers `test_*.gd` — no need to register a new suite by name).
 - Godot version is pinned in `game/.godot-version`; CI downloads that exact build.
