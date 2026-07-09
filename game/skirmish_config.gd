@@ -35,9 +35,14 @@ static var enemy_morale_cap := 100.0
 ## not the skirmish menu — main.gd's battle-over handling uses this to decide
 ## whether to write results back via battle_bridge.gd and return to
 ## strategic_map.tscn instead of skirmish_menu.tscn. contact_fleet_ids is
-## [side0_fleet_id, side1_fleet_id] from the contact that triggered this battle.
+## [player_fleet_id, enemy_fleet_id] from the contact that triggered this
+## battle. contact_system (issue #16) is the system they were both standing in
+## when the contact fired — threaded through explicitly rather than
+## reconstructed after the battle, since a mutual wipeout erases BOTH fleets'
+## dicts, leaving nothing to read a "system" field off of afterward.
 static var from_map_contact := false
 static var contact_fleet_ids: Array[String] = []
+static var contact_system := ""
 
 ## Battle -> strategic write-back (main.gd fills these in on battle-over when
 ## from_map_contact is true; strategic_map.gd reads and applies them via

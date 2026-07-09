@@ -9,23 +9,26 @@ class_name Galaxy
 ## single lane each — "funneling through fortress chokepoints" (GDD §4.1), though
 ## the fortress mechanic itself is a later issue (GDD §5.7).
 ##
-## Sector A (west) starts player-owned, Sector C (east) starts enemy-owned,
-## Sector B (center) starts neutral (owner -1) — contested ground between the
-## two starting empires.
+## Sector A (west) is the player's realm (side 0), Sector B (center) and Sector C
+## (east) are two independent AI realms (sides 1 and 2 — issue #16, GDD's Phase 2
+## spec: "3 sectors (player + 2 dumb AI realms)"). Only two inter-sector lanes exist
+## (A-B, B-C — no direct A-C lane), so Sector B is structurally the only realm
+## bordering both others, a "squeezed middle power" that falls out of the existing
+## topology for free rather than needing a bespoke map redesign.
 
 const SYSTEMS := {
 	"A1": {"pos": Vector2(120, 300), "sector": "A", "owner": 0},
 	"A2": {"pos": Vector2(230, 190), "sector": "A", "owner": 0},
 	"A3": {"pos": Vector2(230, 410), "sector": "A", "owner": 0},
 	"A4": {"pos": Vector2(40, 430), "sector": "A", "owner": 0},
-	"B1": {"pos": Vector2(500, 300), "sector": "B", "owner": -1},
-	"B2": {"pos": Vector2(400, 180), "sector": "B", "owner": -1},
-	"B3": {"pos": Vector2(600, 180), "sector": "B", "owner": -1},
-	"B4": {"pos": Vector2(500, 460), "sector": "B", "owner": -1},
-	"C1": {"pos": Vector2(880, 300), "sector": "C", "owner": 1},
-	"C2": {"pos": Vector2(770, 190), "sector": "C", "owner": 1},
-	"C3": {"pos": Vector2(770, 410), "sector": "C", "owner": 1},
-	"C4": {"pos": Vector2(960, 430), "sector": "C", "owner": 1},
+	"B1": {"pos": Vector2(500, 300), "sector": "B", "owner": 1},
+	"B2": {"pos": Vector2(400, 180), "sector": "B", "owner": 1},
+	"B3": {"pos": Vector2(600, 180), "sector": "B", "owner": 1},
+	"B4": {"pos": Vector2(500, 460), "sector": "B", "owner": 1},
+	"C1": {"pos": Vector2(880, 300), "sector": "C", "owner": 2},
+	"C2": {"pos": Vector2(770, 190), "sector": "C", "owner": 2},
+	"C3": {"pos": Vector2(770, 410), "sector": "C", "owner": 2},
+	"C4": {"pos": Vector2(960, 430), "sector": "C", "owner": 2},
 }
 
 const LANES := [

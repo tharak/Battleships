@@ -34,7 +34,7 @@ class_name StrategicState
 var tick: int = 0  # weeks
 var fleets: Dictionary = {}  # id -> Dictionary
 var system_owner: Dictionary = {}  # id (String) -> int side
-var materiel: Dictionary = {0: 0.0, 1: 0.0}
+var materiel: Dictionary = {0: 0.0, 1: 0.0, 2: 0.0}  # side -> stockpile (issue #16: 3 realms)
 
 
 func _init() -> void:

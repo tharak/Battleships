@@ -15,11 +15,13 @@ func _init() -> void:
 	print("test_shipyard — Godot ", Engine.get_version_info()["string"])
 
 	_test_accrue_scales_with_owned_systems()
+	_test_accrue_credits_all_three_realms()
 	_test_rebuild_does_nothing_away_from_shipyard()
 	_test_rebuild_does_nothing_at_full_strength()
 	_test_rebuild_does_nothing_without_materiel()
 	_test_rebuild_restores_strength_and_spends_materiel()
 	_test_rebuild_never_exceeds_preset_max()
+	_test_rebuild_respects_live_ownership_not_just_the_static_table()
 	_test_losses_persist_until_rebuilt()
 	_test_war_of_attrition_stalls_without_materiel()
 
@@ -48,6 +50,19 @@ func _test_accrue_scales_with_owned_systems() -> void:
 	# Side 0 (player) owns exactly the 4 A-sector systems by default.
 	_check(state.materiel[0] == before + 4 * Shipyard.MATERIEL_PER_SYSTEM_PER_TICK,
 		"accrue: income scales with how many systems a side currently owns")
+
+
+## Issue #16: a fixed 2-side loop here would have silently starved the 3rd
+## realm of income entirely -- confirmed as a real bug, not hypothetical, by
+## the accrue() rewrite that made this pass (it now derives sides from
+## state.system_owner instead of hardcoding [0, 1]).
+func _test_accrue_credits_all_three_realms() -> void:
+	var state := StrategicState.new()
+	Shipyard.accrue(state)
+	var per_sector := 4 * Shipyard.MATERIEL_PER_SYSTEM_PER_TICK
+	_check(state.materiel[0] == per_sector, "accrue: side 0 (player, Sector A) gets its income")
+	_check(state.materiel[1] == per_sector, "accrue: side 1 (AI realm, Sector B) also gets its income")
+	_check(state.materiel[2] == per_sector, "accrue: side 2 (AI realm, Sector C) also gets its income")
 
 
 func _test_rebuild_does_nothing_away_from_shipyard() -> void:
@@ -97,6 +112,20 @@ func _test_rebuild_never_exceeds_preset_max() -> void:
 	Shipyard.rebuild(state, "F1")
 	_check(state.fleets["F1"]["strength"] == max_strength,
 		"rebuild: tops out exactly at the preset's original max, not a strength point over")
+
+
+## Issue #16: territory capture means a shipyard's OWNER can change, but the
+## static SHIPYARDS table (whose realm originally built the hub) never does --
+## rebuild must check live state.system_owner too, or a captured shipyard
+## would silently keep rebuilding ships for its former owner forever.
+func _test_rebuild_respects_live_ownership_not_just_the_static_table() -> void:
+	var state := StrategicState.new()
+	state.materiel[0] = 1000.0  # plenty of materiel -- ownership is the ONLY thing under test
+	state.fleets["F1"] = {"side": 0, "system": "A1", "preset": "line", "strength": 10}
+	state.system_owner["A1"] = 1  # captured by a rival -- Shipyard.SHIPYARDS still says "A1: 0"
+	Shipyard.rebuild(state, "F1")
+	_check(state.fleets["F1"]["strength"] == 10,
+		"rebuild: a captured shipyard stops rebuilding for its former owner, even with materiel to spare")
 
 
 ## --- Sim integration: the issue's own showable outcome ----------------------------------

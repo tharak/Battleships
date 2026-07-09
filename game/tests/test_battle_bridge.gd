@@ -21,6 +21,7 @@ func _init() -> void:
 	_test_detect_contact_empty_when_no_contact()
 	_test_seed_skirmish_fills_config_from_fleets()
 	_test_apply_result_removes_wiped_fleet_and_updates_survivor()
+	_test_apply_result_mutual_wipeout_leaves_ownership_untouched()
 	_test_auto_resolve_mismatch_favors_stronger_side()
 	_test_auto_resolve_even_fight_costs_both_sides()
 	_test_auto_resolve_starved_fleet_fares_worse_than_full_supply()
@@ -92,15 +93,30 @@ func _test_seed_skirmish_fills_config_from_fleets() -> void:
 		"seed_skirmish: each side's supply maps to its own tactical modifiers")
 	_check(SkirmishConfig.from_map_contact and SkirmishConfig.contact_fleet_ids == ["Blue", "Red"],
 		"seed_skirmish: marks this as a map-contact battle and remembers which fleets")
+	_check(SkirmishConfig.contact_system == "B1",
+		"seed_skirmish: remembers which system the contact happened in")
 
 
 func _test_apply_result_removes_wiped_fleet_and_updates_survivor() -> void:
 	var state := StrategicState.new()
 	state.fleets["Blue"] = {"side": 0, "system": "B1", "strength": 90}
 	state.fleets["Red"] = {"side": 1, "system": "B1", "strength": 90}
-	BattleBridge.apply_result(state, "Blue", "Red", 60, 0)
+	BattleBridge.apply_result(state, "Blue", "Red", 60, 0, "B1")
 	_check(state.fleets["Blue"]["strength"] == 60, "apply_result: survivor's strength updates to what's left")
 	_check(not state.fleets.has("Red"), "apply_result: a fleet reduced to zero is removed from the map")
+	_check(state.system_owner["B1"] == 0, "apply_result: the survivor captures the system the battle was fought in")
+
+
+func _test_apply_result_mutual_wipeout_leaves_ownership_untouched() -> void:
+	var state := StrategicState.new()
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "strength": 90}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "strength": 90}
+	var owner_before: int = state.system_owner["B1"]
+	BattleBridge.apply_result(state, "Blue", "Red", 0, 0, "B1")
+	_check(not state.fleets.has("Blue") and not state.fleets.has("Red"),
+		"apply_result: a mutual wipeout removes both fleets")
+	_check(state.system_owner["B1"] == owner_before,
+		"apply_result: a mutual wipeout leaves ownership untouched -- nobody's left to claim it")
 
 
 ## --- pure AutoResolve functions ----------------------------------------------------------

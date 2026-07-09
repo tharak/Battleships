@@ -44,7 +44,10 @@ func _check(cond: bool, label: String) -> void:
 
 func _test_owned_hop_path_direct() -> void:
 	var state := StrategicState.new()
-	# B2 (neutral, not owned) is a direct neighbor of A2 (owned) -- one real hop.
+	# B2 (not owned by side 0 -- issue #16 made it AI realm 1's territory by
+	# default, but that doesn't matter here) is a direct neighbor of A2 (owned)
+	# -- one real hop, and a destination is always a legal endpoint regardless
+	# of who owns it.
 	var path := Supply.owned_hop_path(state, 0, "B2")
 	_check(path == ["B2"], "owned_hop_path: a system directly past owned territory is a single hop")
 
@@ -66,7 +69,9 @@ func _test_throughput_full_in_owned_territory() -> void:
 
 func _test_throughput_falls_off_per_hop() -> void:
 	var state := StrategicState.new()
-	# B2 is a picket (one hop from owned A2) but not owned -- a real convoy hop.
+	# B2 is a picket (one hop from owned A2), not owned by side 0 -- a real
+	# convoy hop; the destination itself is always a legal endpoint regardless
+	# of ownership, only INTERMEDIATE hops need to be non-hostile.
 	state.fleets["F1"] = {"side": 0, "system": "B2", "dest": null, "progress": 0.0, "path": [], "supply": 100.0}
 	var t := Supply.throughput(state, "F1")
 	_check(absf(t - Supply.HOP_FALLOFF) < 0.001,
@@ -146,13 +151,25 @@ func _test_cutting_the_chain_starves_an_advancing_fleet() -> void:
 ## hand-sets state for isolated scenarios rather than percentage-completing a real
 ## multi-tick maneuver just to get there.
 func _test_raider_on_the_route_accelerates_starvation() -> void:
+	# B1 is 2 hops out with B2 as an INTERMEDIATE waypoint -- unlike this file's
+	# other scenarios (which all use B2 itself as the destination, always a
+	# legal endpoint regardless of ownership), this one needs B1/B2 to actually
+	# be neutral contested ground for the route through B2 to exist at all.
+	# Issue #16 made Sector B a permanently-owned AI realm by default, so that
+	# has to be set explicitly here now rather than relying on Galaxy's default
+	# map -- this test is about convoy routing through contested territory, a
+	# scenario decoupled from whichever specific realm owns Sector B by default.
 	var unraided_state := StrategicState.new()
+	unraided_state.system_owner["B1"] = -1
+	unraided_state.system_owner["B2"] = -1
 	unraided_state.fleets["F1"] = {"side": 0, "system": "B1", "dest": "B3", "progress": 0.0, "path": [], "supply": 50.0}
 	for t in range(15):
 		Supply.advance(unraided_state, "F1")
 	var unraided: float = unraided_state.fleets["F1"]["supply"]
 
 	var raided_state := StrategicState.new()
+	raided_state.system_owner["B1"] = -1
+	raided_state.system_owner["B2"] = -1
 	raided_state.fleets["F1"] = {"side": 0, "system": "B1", "dest": "B3", "progress": 0.0, "path": [], "supply": 50.0}
 	raided_state.fleets["Raider"] = {"side": 1, "system": "B2", "dest": null, "progress": 0.0, "path": [], "supply": 100.0}
 	for t in range(15):

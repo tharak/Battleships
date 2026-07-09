@@ -44,12 +44,14 @@ static func detect_contact(state: StrategicState) -> Array:
 
 
 ## Fills SkirmishConfig from the two contacting fleets so main.tscn spawns the
-## right rosters with the right supply modifiers. `side0_fleet`/`side1_fleet`
-## are fleet ids already confirmed to be side 0 / side 1 respectively (the
-## caller sorts detect_contact's pair by side first).
-static func seed_skirmish(state: StrategicState, side0_fleet: String, side1_fleet: String) -> void:
-	var f0: Dictionary = state.fleets[side0_fleet]
-	var f1: Dictionary = state.fleets[side1_fleet]
+## right rosters with the right supply modifiers. ONLY ever called for a
+## contact that involves the player (strategic_map.gd routes AI-vs-AI contacts
+## to auto_resolve_contact/AutoResolve instead, never here) — so, unlike
+## apply_result below, `player_fleet`/`enemy_fleet` really do always mean
+## exactly that, not an arbitrary pair of strategic sides.
+static func seed_skirmish(state: StrategicState, player_fleet: String, enemy_fleet: String) -> void:
+	var f0: Dictionary = state.fleets[player_fleet]
+	var f1: Dictionary = state.fleets[enemy_fleet]
 	SkirmishConfig.player_preset = f0.get("preset", FleetPresets.DEFAULT)
 	SkirmishConfig.enemy_preset = f1.get("preset", FleetPresets.DEFAULT)
 	SkirmishConfig.terrain_option = "none"
@@ -60,20 +62,33 @@ static func seed_skirmish(state: StrategicState, side0_fleet: String, side1_flee
 	SkirmishConfig.enemy_uptime_mult = mod1["uptime_mult"]
 	SkirmishConfig.enemy_morale_cap = mod1["morale_cap"]
 	SkirmishConfig.from_map_contact = true
-	SkirmishConfig.contact_fleet_ids = [side0_fleet, side1_fleet]
+	SkirmishConfig.contact_fleet_ids = [player_fleet, enemy_fleet]
+	SkirmishConfig.contact_system = f0["system"]  # both fleets share this system, by definition of a contact
 
 
 ## Battle → strategic write-back (minimal, see this file's docstring): the
 ## losing fleet is removed from the map, the winning fleet's strength is set to
-## its survivors' total. Called once main.tscn's battle concludes and the
-## player returns to the map (strategic_map.gd reads BattleResult, see there).
-static func apply_result(state: StrategicState, side0_fleet: String, side1_fleet: String,
-		side0_strength_left: int, side1_strength_left: int) -> void:
-	if side0_strength_left <= 0:
-		state.fleets.erase(side0_fleet)
+## its survivors' total, and — issue #16 — the winner captures the system this
+## was fought over (a mutual wipeout leaves ownership untouched: nobody's left
+## to claim it). Used for BOTH a player battle concluding in main.tscn (fleet_a/
+## fleet_b positionally match seed_skirmish's player_fleet/enemy_fleet) and an
+## AI-vs-AI contact resolved directly via AutoResolve — `fleet_a`/`fleet_b` are
+## deliberately generic (matching AutoResolve.resolve's own "a"/"b" convention),
+## not "side 0/side 1", since this is called for arbitrary side pairs in the
+## AI-vs-AI case.
+static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String,
+		a_strength_left: int, b_strength_left: int, system_id: String) -> void:
+	var a_side: int = state.fleets[fleet_a]["side"]
+	var b_side: int = state.fleets[fleet_b]["side"]
+	if a_strength_left <= 0:
+		state.fleets.erase(fleet_a)
 	else:
-		state.fleets[side0_fleet]["strength"] = side0_strength_left
-	if side1_strength_left <= 0:
-		state.fleets.erase(side1_fleet)
+		state.fleets[fleet_a]["strength"] = a_strength_left
+	if b_strength_left <= 0:
+		state.fleets.erase(fleet_b)
 	else:
-		state.fleets[side1_fleet]["strength"] = side1_strength_left
+		state.fleets[fleet_b]["strength"] = b_strength_left
+	if a_strength_left > 0 and b_strength_left <= 0:
+		state.system_owner[system_id] = a_side
+	elif b_strength_left > 0 and a_strength_left <= 0:
+		state.system_owner[system_id] = b_side
