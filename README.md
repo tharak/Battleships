@@ -27,11 +27,15 @@ GDD §11: the simulation is plain data + systems that runs headless, and **every
 mutation flows through a serialized command stream** — no direct UI-to-sim pokes — so
 the game is multiplayer-ready (deterministic lockstep) from day one.
 
-- **Run the scaffold scene:** `godot --path game` (open the project; `main.tscn` runs
-  automatically) or `godot --path game main.tscn` from the CLI.
-- **Run the determinism test:**
-  `godot --headless --path game --script res://tests/test_determinism.gd` — replays a
+- **Run the battle plane scene:** `godot --path game` (open the project; `main.tscn`
+  runs automatically) or `godot --path game main.tscn` from the CLI. Select your
+  squadrons (blue) by click or drag-box, right-click to move them, Q/E to turn in
+  place, Space to pause, 1/2/3 for 1x/2x/4x speed — orders queue up while paused.
+- **Run the tests:**
+  `godot --headless --path game --script res://tests/test_determinism.gd` replays a
   recorded command stream and checks the resulting state hash against a committed
-  golden fixture (`game/tests/fixtures/`). This runs in CI on every push/PR that
-  touches `game/` ([sim-tests workflow](.github/workflows/sim-tests.yml)).
+  golden fixture (`game/tests/fixtures/`); `res://tests/test_movement.gd` checks the
+  movement/turning/cohesion kinematics themselves (arrival, no-overshoot turning,
+  cohesion dropping while turning and regenerating while steady). Both run in CI on
+  every push/PR that touches `game/` ([sim-tests workflow](.github/workflows/sim-tests.yml)).
 - Godot version is pinned in `game/.godot-version`; CI downloads that exact build.

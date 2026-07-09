@@ -1,15 +1,15 @@
 extends RefCounted
 class_name Commands
-## Command kinds and (de)serialization for the deterministic sim scaffold
-## (GDD §11: "all sim mutations flow through serialized commands"). Commands are
-## plain Dictionaries so they round-trip through JSON without custom marshalling.
+## Command kinds and (de)serialization for the sim (GDD §11: "all sim mutations flow
+## through serialized commands"). Commands are plain Dictionaries so they round-trip
+## through JSON without custom marshalling.
 ##
 ## Shape: {"t": int tick, "k": String kind, "a": Dictionary args}
 ##
-## Kinds implemented for the scaffold (issue #3 — full battle rules are #4-#7):
-##   "spawn"      a: {id, side, pos: [col,row], facing, strength, flag}
-##   order_move   a: {id, target: [col,row]}   -- squadron walks toward target
-##   order_face   a: {id, facing}              -- squadron turns toward facing
+## Kinds:
+##   "spawn"      a: {id, side, pos: [x,y], facing (deg), strength, flag}
+##   order_move   a: {id, target: [x,y]}   -- squadron turns toward and walks to target
+##   order_face   a: {id, facing (deg)}    -- squadron turns to face in place, holds
 
 const KINDS := ["spawn", "order_move", "order_face"]
 
@@ -25,10 +25,10 @@ static func is_valid(cmd: Dictionary) -> bool:
 		and typeof(cmd["a"]) == TYPE_DICTIONARY
 
 
-## Vector2i isn't JSON-native; commands store positions as 2-element arrays.
-static func pos_to_array(p: Vector2i) -> Array:
+## Vector2 isn't JSON-native; commands store positions as 2-element arrays.
+static func pos_to_array(p: Vector2) -> Array:
 	return [p.x, p.y]
 
 
-static func array_to_pos(a: Array) -> Vector2i:
-	return Vector2i(int(a[0]), int(a[1]))
+static func array_to_pos(a: Array) -> Vector2:
+	return Vector2(float(a[0]), float(a[1]))

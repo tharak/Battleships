@@ -46,19 +46,19 @@ func _check(cond: bool, label: String) -> void:
 func _scripted_stream() -> CommandStream:
 	var s := CommandStream.new()
 	s.record(Commands.make(0, "spawn", {
-		"id": "B1", "side": 0, "pos": [2, 5], "facing": 0, "strength": 4, "flag": true,
+		"id": "B1", "side": 0, "pos": [20, 50], "facing": 0.0, "strength": 4, "flag": true,
 	}))
 	s.record(Commands.make(0, "spawn", {
-		"id": "B2", "side": 0, "pos": [2, 7], "facing": 0, "strength": 4, "flag": false,
+		"id": "B2", "side": 0, "pos": [20, 70], "facing": 0.0, "strength": 4, "flag": false,
 	}))
 	s.record(Commands.make(0, "spawn", {
-		"id": "R1", "side": 1, "pos": [18, 5], "facing": 3, "strength": 4, "flag": true,
+		"id": "R1", "side": 1, "pos": [180, 50], "facing": 180.0, "strength": 4, "flag": true,
 	}))
-	s.record(Commands.make(1, "order_move", {"id": "B1", "target": [10, 5]}))
-	s.record(Commands.make(1, "order_move", {"id": "B2", "target": [10, 7]}))
-	s.record(Commands.make(1, "order_move", {"id": "R1", "target": [10, 5]}))
-	s.record(Commands.make(40, "order_face", {"id": "B2", "facing": 2}))
-	s.record(Commands.make(90, "order_move", {"id": "B2", "target": [4, 2]}))
+	s.record(Commands.make(1, "order_move", {"id": "B1", "target": [100, 50]}))
+	s.record(Commands.make(1, "order_move", {"id": "B2", "target": [100, 70]}))
+	s.record(Commands.make(1, "order_move", {"id": "R1", "target": [100, 50]}))
+	s.record(Commands.make(40, "order_face", {"id": "B2", "facing": 90.0}))
+	s.record(Commands.make(90, "order_move", {"id": "B2", "target": [40, 20]}))
 	return s
 
 

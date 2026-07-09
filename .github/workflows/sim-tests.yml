@@ -48,3 +48,8 @@ jobs:
         run: |
           set -e
           "$GODOT_BIN" --headless --path game --script res://tests/test_determinism.gd
+
+      - name: Run movement test
+        run: |
+          set -e
+          "$GODOT_BIN" --headless --path game --script res://tests/test_movement.gd

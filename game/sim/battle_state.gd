@@ -4,9 +4,19 @@ class_name BattleState
 ## decoupled from rendering"). No node, no signals, no engine coupling beyond
 ## RandomNumberGenerator — safe to run headless, hash, save, and diff.
 ##
-## Squadron fields mirror the validated Python/HTML prototypes:
-##   id: String, side: int, pos: Vector2i, facing: int (0-5),
-##   strength: int, flag: bool, target: Vector2i (or null = holding position)
+## Squadron fields (GDD §5.1-5.2, continuous 2D plane, not the Phase 0 hex grid):
+##   id: String, side: int, pos: Vector2, facing: float (deg), desired_facing: float,
+##   target: Vector2 or null (move order; null = holding), cohesion: float (0-100),
+##   strength: int, flag: bool
+##
+## Deliberate scope call: positions/angles are plain floats, not fixed-point. Bit-exact
+## cross-machine determinism (needed for lockstep netcode) depends on sin/cos/atan2
+## matching across platforms, which GDD §11 explicitly defers ("netcode itself... is
+## post-release"); revisit with fixed-point trig if/when that work starts. Same-machine
+## repeatability — what solo play, hotseat, and replays need today — holds with floats
+## as long as command order and per-tick operation order are fixed, which they are
+## (squadrons always processed in sorted-id order). The determinism test suite is the
+## regression guard for this.
 
 var tick: int = 0
 var rng: RandomNumberGenerator
@@ -18,8 +28,8 @@ func _init(seed_value: int) -> void:
 	rng.seed = seed_value
 
 
-## Canonical dict for hashing/serialization: sorted keys, ints only, no Vector2i
-## (which isn't stable across Variant->JSON->Variant round trips) — arrays instead.
+## Canonical dict for hashing/serialization: sorted keys, no Vector2 (arrays instead,
+## for stable Variant->JSON->Variant round trips).
 func to_dict() -> Dictionary:
 	var ids := squadrons.keys()
 	ids.sort()
@@ -34,9 +44,11 @@ func to_dict() -> Dictionary:
 			"side": sq["side"],
 			"pos": Commands.pos_to_array(sq["pos"]),
 			"facing": sq["facing"],
+			"desired_facing": sq["desired_facing"],
+			"target": target_field,
+			"cohesion": sq["cohesion"],
 			"strength": sq["strength"],
 			"flag": sq["flag"],
-			"target": target_field,
 		})
 	return {
 		"tick": tick,

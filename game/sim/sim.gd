@@ -1,12 +1,22 @@
 extends RefCounted
 class_name Sim
 ## The only mutation path for battle state (GDD §11: "all sim mutations flow through
-## serialized commands from day one — no direct UI-to-sim pokes"). Fixed-tick,
-## integer-coordinate, single seeded RNG: this is the scaffold issue #3 exists to
-## prove. Placeholder kinematics only — real formations/arcs/morale are #4-#7.
+## serialized commands from day one — no direct UI-to-sim pokes"). Fixed-tick, single
+## seeded RNG.
+##
+## Movement & facing (GDD §5.1-5.2, issue #4): a squadron always turns toward its
+## `desired_facing` at a limited rate; while it has a move `target`, desired_facing
+## tracks the bearing to that target and it advances along its own nose once roughly
+## facing it. Cohesion drops while turning hard and regenerates while holding a
+## steady course — "formation integrity drops when maneuvering hard" (GDD §5.2).
 
 const TICKS_PER_SEC := 10
-const MOVE_TICKS := 3  # ticks to cross one hex, matching the paper prototypes' "1 MP/hex"
+const SPEED := 6.0            # plane units / sim-second
+const TURN_RATE := 60.0       # degrees / sim-second
+const ARRIVE_EPS := 0.05      # snap to target within this distance
+const FACE_TOLERANCE := 15.0  # must be within this many degrees of desired_facing to move
+const COHESION_TURN_COST := 0.6   # cohesion lost per degree turned
+const COHESION_REGEN := 15.0      # cohesion regained per second while not turning
 
 var state: BattleState
 
@@ -20,7 +30,7 @@ func _init(seed_value: int) -> void:
 func step(stream: CommandStream) -> void:
 	for cmd in stream.due(state.tick):
 		_apply(cmd)
-	_advance_kinematics()
+	_advance_kinematics(1.0 / TICKS_PER_SEC)
 	state.tick += 1
 
 
@@ -34,59 +44,64 @@ func _apply(cmd: Dictionary) -> void:
 	var a: Dictionary = cmd["a"]
 	match cmd["k"]:
 		"spawn":
-			# Explicit int()/bool() casts: JSON round-tripping a recorded stream can
-			# hand back numbers as float even where the value is logically an int —
-			# left uncast, that silently changes the canonical hash after a replay.
+			# Explicit int()/float()/bool() casts: JSON round-tripping a recorded
+			# stream can hand back numbers as a different numeric type than what was
+			# recorded — left uncast, that silently changes the canonical hash after
+			# a replay (see the test suite's record->replay assertion).
+			var facing := float(a["facing"])
 			state.squadrons[a["id"]] = {
 				"side": int(a["side"]),
 				"pos": Commands.array_to_pos(a["pos"]),
-				"facing": int(a["facing"]) % 6,
+				"facing": facing,
+				"desired_facing": facing,
 				"strength": int(a["strength"]),
 				"flag": bool(a["flag"]),
 				"target": null,
-				"_move_progress": 0,
+				"cohesion": 100.0,
 			}
 		"order_move":
 			if state.squadrons.has(a["id"]):
 				state.squadrons[a["id"]]["target"] = Commands.array_to_pos(a["target"])
-				state.squadrons[a["id"]]["_move_progress"] = 0
 		"order_face":
 			if state.squadrons.has(a["id"]):
-				state.squadrons[a["id"]]["facing"] = int(a["facing"]) % 6
+				var sq: Dictionary = state.squadrons[a["id"]]
+				sq["target"] = null
+				sq["desired_facing"] = Geometry.normalize_angle(float(a["facing"]))
 
 
-## Placeholder movement: turn to face the target direction, then cross one hex every
-## MOVE_TICKS ticks. Deliberately dumb (no arcs, no collision) — proves the sim/render
-## boundary and the command pipeline; #4 replaces this with real squadron movement.
-func _advance_kinematics() -> void:
+func _advance_kinematics(dt: float) -> void:
 	var ids := state.squadrons.keys()
 	ids.sort()
 	for id in ids:
 		var sq: Dictionary = state.squadrons[id]
 		var target = sq.get("target")
-		if target == null or target == sq["pos"]:
-			continue
-		var desired := _desired_dir(sq["pos"], target)
-		if sq["facing"] != desired:
-			sq["facing"] = desired
-			sq["_move_progress"] = 0
-			continue
-		sq["_move_progress"] += 1
-		if sq["_move_progress"] >= MOVE_TICKS:
-			sq["_move_progress"] = 0
-			var nxt: Vector2i = Hex.neighbor(sq["pos"], sq["facing"])
-			sq["pos"] = nxt
-			if nxt == target:
-				sq["target"] = null
 
+		if target != null:
+			sq["desired_facing"] = Geometry.angle_between(sq["pos"], target)
 
-static func _desired_dir(frm: Vector2i, to: Vector2i) -> int:
-	var ang := Hex.angle_between(frm, to)
-	var best := 0
-	var best_diff := INF
-	for d in range(6):
-		var diff = abs(fposmod(Hex.DIR_ANGLE[d] - ang + 180.0, 360.0) - 180.0)
-		if diff < best_diff:
-			best_diff = diff
-			best = d
-	return best
+		var before: float = sq["facing"]
+		var after: float = Geometry.turn_toward(before, sq["desired_facing"], TURN_RATE * dt)
+		var turned: float = abs(Geometry.normalize_angle(after - before))
+		sq["facing"] = after
+
+		if turned > 0.0001:
+			sq["cohesion"] = maxf(0.0, sq["cohesion"] - COHESION_TURN_COST * turned)
+		else:
+			sq["cohesion"] = minf(100.0, sq["cohesion"] + COHESION_REGEN * dt)
+
+		if target == null:
+			continue
+
+		var to_target: Vector2 = target - sq["pos"]
+		var dist: float = to_target.length()
+		if dist <= ARRIVE_EPS:
+			sq["pos"] = target
+			sq["target"] = null
+			continue
+
+		if Geometry.rel_angle(sq["facing"], sq["pos"], target) <= FACE_TOLERANCE:
+			# Move straight toward the target (not strictly along `facing`, which is
+			# only guaranteed within FACE_TOLERANCE) so distance-to-target shrinks
+			# monotonically every tick and arrival is guaranteed to converge cleanly.
+			var step_dist: float = minf(SPEED * dt, dist)
+			sq["pos"] = sq["pos"] + to_target.normalized() * step_dist
