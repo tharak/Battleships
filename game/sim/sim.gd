@@ -85,6 +85,12 @@ func _apply(cmd: Dictionary) -> void:
 				var sq: Dictionary = state.squadrons[a["id"]]
 				sq["target"] = null
 				sq["desired_facing"] = Geometry.normalize_angle(float(a["facing"]))
+		"spawn_terrain":
+			state.terrain[a["id"]] = {
+				"kind": String(a["kind"]),
+				"pos": Commands.array_to_pos(a["pos"]),
+				"radius": float(a["radius"]),
+			}
 
 
 func _advance_kinematics(dt: float) -> void:
@@ -127,7 +133,11 @@ func _advance_kinematics(dt: float) -> void:
 			# Move straight toward the target (not strictly along `facing`, which is
 			# only guaranteed within FACE_TOLERANCE) so distance-to-target shrinks
 			# monotonically every tick and arrival is guaranteed to converge cleanly.
-			var step_dist: float = minf(SPEED * dt, dist)
+			# Asteroid fields slow movement (issue #9, GDD §5.7) — checked at the
+			# squadron's current position, not the target, so a squadron already
+			# inside a field is slowed on the way out just as much as on the way in.
+			var speed: float = SPEED * Terrain.speed_mult(sq["pos"], state.terrain)
+			var step_dist: float = minf(speed * dt, dist)
 			sq["pos"] = sq["pos"] + to_target.normalized() * step_dist
 
 
@@ -165,7 +175,8 @@ func _advance_flee(sq: Dictionary, dt: float) -> void:
 	# FACE_TOLERANCE gate to check here (unlike normal orders) — a routed squadron
 	# always moves.
 	var heading := deg_to_rad(sq["facing"])
-	sq["pos"] = sq["pos"] + Vector2(cos(heading), sin(heading)) * SPEED * Morale.FLEE_SPEED_MULT * dt
+	var speed: float = SPEED * Morale.FLEE_SPEED_MULT * Terrain.speed_mult(sq["pos"], state.terrain)
+	sq["pos"] = sq["pos"] + Vector2(cos(heading), sin(heading)) * speed * dt
 
 
 ## Beam combat (issue #5): each squadron with a legal target (Combat.pick_target)
@@ -184,7 +195,7 @@ func _advance_combat(dt: float) -> Array:
 		var fire_mult := Morale.fire_multiplier(firer)
 		if fire_mult <= 0.0:
 			continue  # routed: cannot fire at all (GDD §5.5)
-		var target_id := Combat.pick_target(firer_id, firer, state.squadrons)
+		var target_id := Combat.pick_target(firer_id, firer, state.squadrons, state.terrain)
 		if target_id == "":
 			continue
 		var target: Dictionary = state.squadrons[target_id]

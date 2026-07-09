@@ -13,8 +13,11 @@ class_name Commands
 ##                arrival (formation orders use this to land on a slot pointed the
 ##                right way — see sim/formations.gd)
 ##   order_face   a: {id, facing (deg)}    -- squadron turns to face in place, holds
+##   spawn_terrain a: {id, kind ("asteroid_field"), pos: [x,y], radius} -- seeds a
+##                static terrain zone (issue #9, GDD §5.7); never moves or changes
+##                after this, so unlike squadrons it needs no further commands
 
-const KINDS := ["spawn", "order_move", "order_face"]
+const KINDS := ["spawn", "order_move", "order_face", "spawn_terrain"]
 
 
 static func make(tick: int, kind: String, args: Dictionary) -> Dictionary:

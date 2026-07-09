@@ -40,9 +40,11 @@ static func in_front_arc(firer: Dictionary, target_pos: Vector2) -> bool:
 
 
 ## Nearest living enemy this squadron could legally fire at right now (in range, in
-## its own front arc), tie-broken by lowest strength then id for full determinism.
-## Returns "" if there is no legal target.
-static func pick_target(firer_id: String, firer: Dictionary, squadrons: Dictionary) -> String:
+## its own front arc, not concealed by terrain and not LOS-blocked by terrain —
+## issue #9, GDD §5.7), tie-broken by lowest strength then id for full determinism.
+## Returns "" if there is no legal target. `terrain` defaults to {} so existing
+## callers/tests with no terrain in play don't need to pass anything.
+static func pick_target(firer_id: String, firer: Dictionary, squadrons: Dictionary, terrain: Dictionary = {}) -> String:
 	var best_id := ""
 	var best_key := [INF, INF]
 	var ids := squadrons.keys()
@@ -58,6 +60,10 @@ static func pick_target(firer_id: String, firer: Dictionary, squadrons: Dictiona
 			continue
 		if not in_front_arc(firer, sq["pos"]):
 			continue
+		if Terrain.is_concealed_from(sq["pos"], firer["pos"], terrain):
+			continue  # hidden in an asteroid field, out of detection range — GDD §5.7 ambush
+		if Terrain.blocks_line(firer["pos"], sq["pos"], terrain):
+			continue  # an asteroid field sits between firer and target — GDD §5.7 blocks beam fire
 		var key := [dist, float(sq["strength"])]
 		if key[0] < best_key[0] - EPS or (abs(key[0] - best_key[0]) <= EPS and key[1] < best_key[1]):
 			best_key = key

@@ -12,7 +12,14 @@ extends Node2D
 ## morale faster and answer orders immediately; outside, orders take ~2s to arrive
 ## (nothing to click for this — it's just how far a command has to travel). Losing
 ## the flagship is fleet-wide: every survivor takes an immediate morale shock, and
-## regen stays permanently reduced for the rest of the battle. This scene never
+## regen stays permanently reduced for the rest of the battle. An asteroid field
+## (#9, GDD §5.7, drawn as a translucent brownish disc) blocks beam fire passing
+## through open space between two squadrons, slows anything moving inside it, and
+## hides a squadron standing inside it from anything more than Terrain.
+## ASTEROID_DETECT_RADIUS away — the demo spawns one blue squadron already hidden
+## inside a field near the enemy line as a working ambush: it opens fire immediately
+## with no return shots taken, until an enemy closes the distance and spots it. This
+## scene never
 ## mutates Sim state directly — every order becomes a Command appended to `_stream`,
 ## timestamped at the sim's current tick (delayed if the squadron is out of command),
 ## exactly like a recorded replay (GDD §11: "no direct UI-to-sim pokes"). Combat and
@@ -250,6 +257,24 @@ func _spawn_scene() -> void:
 			"id": "R%d" % (i + 1), "side": 1, "pos": Commands.pos_to_array(pos),
 			"facing": enemy_facing, "strength": 15, "flag": i == line["flag"],
 		}))
+
+	# Issue #9 (GDD §5.7): an asteroid field south of the enemy line's flank, with a
+	# 6th blue squadron already hidden inside it. Its distance to every enemy
+	# squadron (~108-190 units) is chosen between Terrain.ASTEROID_DETECT_RADIUS (90)
+	# and Combat.RANGE (220): the ambusher can legally fire out (it isn't the one
+	# being concealed from itself), but no enemy can see or fire back until
+	# something closes to within detection range — this is the issue's showable
+	# outcome, "an ambush from an asteroid field that works", playing out
+	# automatically with no player input needed.
+	var field_pos := Vector2(600, 420)
+	_stream.record(Commands.make(0, "spawn_terrain", {
+		"id": "asteroid_1", "kind": "asteroid_field",
+		"pos": Commands.pos_to_array(field_pos), "radius": 50.0,
+	}))
+	_stream.record(Commands.make(0, "spawn", {
+		"id": "B6", "side": 0, "pos": Commands.pos_to_array(field_pos),
+		"facing": 0.0, "strength": 15, "flag": false,
+	}))
 
 
 func _process(delta: float) -> void:
@@ -523,6 +548,8 @@ func _update_label() -> void:
 func _draw() -> void:
 	if _sim == null:
 		return
+	for id in _sim.state.terrain.keys():
+		_draw_terrain_field(_sim.state.terrain[id])
 	for side in [0, 1]:
 		_draw_command_radius(side)
 	for beam in _fire_beams:
@@ -533,6 +560,16 @@ func _draw() -> void:
 		var rect := Rect2(_drag_start, Vector2.ZERO).expand(_drag_current)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.15), true)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.8), false, 1.5)
+
+
+## Asteroid field (issue #9, GDD §5.7): a translucent brownish disc so it reads as
+## hazardous/obscuring terrain, distinct from the side-colored command-radius rings.
+## Drawn before everything else so it sits as a backdrop, not a foreground mark.
+func _draw_terrain_field(field: Dictionary) -> void:
+	var center := _project_to_screen(field["pos"])
+	var screen_radius: float = field["radius"] * SIM_TO_WORLD * (get_viewport_rect().size.y / CAM_ORTHO_SIZE)
+	draw_circle(center, screen_radius, Color(0.45, 0.38, 0.32, 0.18))
+	draw_arc(center, screen_radius, 0.0, TAU, 40, Color(0.6, 0.52, 0.42, 0.6), 1.5)
 
 
 ## Issue #8's whole point made visible: where you place the flagship IS the shape of

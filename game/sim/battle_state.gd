@@ -18,6 +18,10 @@ class_name BattleState
 ## by side, {"flagship_lost": bool} — GDD §5.6's permanent morale penalty and command
 ## radius loss once a flagship dies (sim/command.gd).
 ##
+## `terrain` (issue #9, GDD §5.7): id -> {kind: String, pos: Vector2, radius: float}.
+## Seeded once via "spawn_terrain" commands and never mutated afterward — there's no
+## per-tick terrain system, just geometry queries against this dict (sim/terrain.gd).
+##
 ## Deliberate scope call: positions/angles are plain floats, not fixed-point. Bit-exact
 ## cross-machine determinism (needed for lockstep netcode) depends on sin/cos/atan2
 ## matching across platforms, which GDD §11 explicitly defers ("netcode itself... is
@@ -31,6 +35,7 @@ var tick: int = 0
 var rng: RandomNumberGenerator
 var squadrons: Dictionary = {}  # id (String) -> Dictionary
 var fleets: Array[Dictionary] = [{"flagship_lost": false}, {"flagship_lost": false}]
+var terrain: Dictionary = {}    # id (String) -> {kind, pos, radius}
 
 
 func _init(seed_value: int) -> void:
@@ -64,11 +69,21 @@ func to_dict() -> Dictionary:
 			"morale": sq["morale"],
 			"routed": sq["routed"],
 		})
+	var terrain_ids := terrain.keys()
+	terrain_ids.sort()
+	var terrain_list := []
+	for id in terrain_ids:
+		var f: Dictionary = terrain[id]
+		terrain_list.append({
+			"id": id, "kind": f["kind"],
+			"pos": Commands.pos_to_array(f["pos"]), "radius": f["radius"],
+		})
 	return {
 		"tick": tick,
 		"rng_state": int(rng.state),
 		"squadrons": squad_list,
 		"fleets": [fleets[0], fleets[1]],
+		"terrain": terrain_list,
 	}
 
 
