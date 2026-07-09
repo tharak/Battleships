@@ -236,7 +236,7 @@ func _spawn_scene() -> void:
 	for i in range(player_positions.size()):
 		_stream.record(Commands.make(0, "spawn", {
 			"id": "B%d" % (i + 1), "side": 0, "pos": Commands.pos_to_array(player_positions[i]),
-			"facing": 0.0, "strength": 4, "flag": i == 0,
+			"facing": 0.0, "strength": 15, "flag": i == 0,
 		}))
 
 	var enemy_anchor := Vector2(700, 320)
@@ -248,7 +248,7 @@ func _spawn_scene() -> void:
 		var pos: Vector2 = enemy_anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(enemy_facing)) * SLOT_SPACING
 		_stream.record(Commands.make(0, "spawn", {
 			"id": "R%d" % (i + 1), "side": 1, "pos": Commands.pos_to_array(pos),
-			"facing": enemy_facing, "strength": 4, "flag": i == line["flag"],
+			"facing": enemy_facing, "strength": 15, "flag": i == line["flag"],
 		}))
 
 

@@ -183,10 +183,15 @@ func _test_routed_squadron_flees() -> void:
 ## unit scenarios.
 func _test_routed_squadron_can_escape_range() -> void:
 	var stream := CommandStream.new()
-	_spawn(stream, "A", 0, Vector2(0, 0), 0.0, 4)
-	_spawn(stream, "B", 1, Vector2(200, 0), 180.0, 4)  # just inside Combat.RANGE (220)
+	# strength=15 (not the old default of 4) to match the current game-wide combat
+	# pacing tuning (Combat.DPS_PER_STRENGTH / Morale.LOSS_PENALTY are tuned together
+	# for 15-strength squadrons) — at strength=4 this evenly-matched pair no longer
+	# reaches the rout threshold before mutual annihilation, since LOSS_PENALTY was
+	# rescaled down alongside the strength bump.
+	_spawn(stream, "A", 0, Vector2(0, 0), 0.0, 15)
+	_spawn(stream, "B", 1, Vector2(200, 0), 180.0, 15)  # just inside Combat.RANGE (220)
 	var sim := Sim.new(1)
-	for t in range(3000):
+	for t in range(6000):
 		sim.step(stream)
 		if not sim.state.squadrons.has("B") or not sim.state.squadrons.has("A"):
 			break

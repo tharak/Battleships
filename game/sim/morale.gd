@@ -41,13 +41,14 @@ const RALLY_THRESHOLD := 50.0
 const ROUT_THRESHOLD := 0.0
 
 const MORALE_REGEN := 8.0           # morale/sec recovered while not hit at all this tick
-## 55, not a smaller number: this needs to rout a squadron after losing HALF its
-## strength (2 of 4 points, front-arc), not after nearly all of it. First tuning
-## pass used 45 (rout only after 3 of 4 losses) and, tested against the actual demo
-## scenario (not just isolated unit scenarios), that left routed squadrons with only
-## one strength point of buffer — nowhere near enough to survive the exposed-rear
-## flee phase, so "battles end in rout" was actually ending in annihilation instead.
-const LOSS_PENALTY := 55.0          # morale lost per whole strength point lost, front-arc baseline
+## Tuned to rout a squadron after losing roughly HALF its strength, front-arc,
+## whatever the strength pool size is (100 / (LOSS_PENALTY) ~= points to rout).
+## Was 55 when squadrons spawned with strength=4 (rout at ~2/4 lost); when combat
+## pacing was retuned for strength=15 squadrons (slower TTK, more reaction time —
+## see Combat.DPS_PER_STRENGTH), this was rescaled to 15 to preserve the same
+## "roughly half strength lost -> rout" relationship (~7-8 of 15 points) rather
+## than let a bigger pool silently shift rout to a much smaller loss fraction.
+const LOSS_PENALTY := 15.0          # morale lost per whole strength point lost, front-arc baseline
 const NEARBY_ROUT_PENALTY := 15.0   # to friendlies in CONTAGION_RADIUS when one routs
 const NEARBY_DEATH_PENALTY := 20.0  # to friendlies in CONTAGION_RADIUS when one dies
 const CONTAGION_RADIUS := 80.0

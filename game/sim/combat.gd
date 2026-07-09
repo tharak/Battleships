@@ -11,7 +11,13 @@ class_name Combat
 ## results (this keeps combat testable in isolation, see tests/test_combat.gd).
 
 const RANGE := 220.0
-const DPS_PER_STRENGTH := 0.22   # front-arc baseline damage/sec per point of firer strength
+## Front-arc baseline damage/sec per point of firer strength. Symmetric TTK for a
+## front-on duel is 1/DPS_PER_STRENGTH regardless of strength (firepower AND total
+## HP both scale with strength, so they cancel) — this is the number that actually
+## sets the game's pace, not the strength value itself. First pass (0.22, tuned
+## alongside strength=4) gave a ~4.5s TTK: far too fast for a human to notice a
+## losing fight and react. Retuned for a ~27s symmetric TTK instead.
+const DPS_PER_STRENGTH := 0.037
 const ARC_MULT := {"front": 1.0, "flank": 1.5, "rear": 2.0}  # GDD §5.5: +50% / +100%
 const EPS := 1e-9  # seam tie-break, favors the shooter — matches the paper prototype
 
