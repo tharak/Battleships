@@ -29,8 +29,14 @@ class_name StrategicCommands
 ##                 active instability-window cooldown) and silently no-ops if
 ##                 rejected -- same "no player-visible rejection feedback" UX as
 ##                 an out-of-bounds set_policy garrison adjustment.
+##   assign_command  a: {side, fleet_id, character_id} -- issue #25's patronage
+##                 lever. Dispatched to Roster.assign_command (see strategic/
+##                 roster.gd), which validates its own preconditions (the
+##                 character exists/is alive/isn't already this fleet's
+##                 commander) and silently no-ops if rejected, same convention
+##                 as set_regime_action above.
 
-const KINDS := ["spawn_fleet", "order_move", "set_policy", "set_budget", "set_regime_action"]
+const KINDS := ["spawn_fleet", "order_move", "set_policy", "set_budget", "set_regime_action", "assign_command"]
 
 
 static func make(tick: int, kind: String, args: Dictionary) -> Dictionary:

@@ -130,6 +130,10 @@ func _apply(cmd: Dictionary) -> void:
 				"side": int(a["side"]), "system": String(a["system"]),
 				"dest": null, "progress": 0.0, "path": [], "supply": 100.0,
 				"preset": preset, "strength": FleetPresets.total_strength(preset),
+				# Issue #25: every fleet starts under a defined, baseline-
+				# tactics commander from tick 0 (Roster.BASELINE_TACTICS, an
+				# exact no-op multiplier until a real assign_command changes it).
+				"commander_id": Roster.DEFAULT_COMMANDER_ID,
 			}
 		"order_move":
 			if state.fleets.has(a["id"]):
@@ -184,6 +188,11 @@ func _apply(cmd: Dictionary) -> void:
 					Regime.expand_franchise(state, side)
 				"restrict_franchise":
 					Regime.restrict_franchise(state, side)
+		"assign_command":
+			# Issue #25: dispatch to Roster.assign_command, which owns its own
+			# precondition guards and returns bool -- intentionally discarded,
+			# same convention as set_regime_action above.
+			Roster.assign_command(state, int(a["side"]), String(a["fleet_id"]), String(a["character_id"]))
 
 
 ## Pops the next hop off `f["path"]` into `f["dest"]`, resetting progress — or

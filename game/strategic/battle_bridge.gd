@@ -11,11 +11,12 @@ class_name BattleBridge
 ## under `--script` test harnesses).
 ##
 ## Scope: this wires the STRATEGIC → BATTLE half of §5.8's contract table (supply
-## → uptime/morale, fleet roster → squadron count/strength) and a minimal
-## BATTLE → STRATEGIC write-back (surviving strength only). The table's other
-## rows — commander/sub-commander quality, regime state, captured commanders,
-## prestige — need systems that don't exist yet (a commander roster, the
-## political layer) and are out of scope here, not silently dropped.
+## → uptime/morale, fleet roster → squadron count/strength, and — issue #25 —
+## commander tactics → uptime) and a BATTLE → STRATEGIC write-back (surviving
+## strength, plus #25's ambition/permadeath consequences for the assigned
+## commander). The table's remaining rows — sub-commander quality, regime
+## state, captured commanders, prestige beyond ambition — need systems that
+## don't exist yet and stay out of scope here, not silently dropped.
 
 ## GDD §5.8's exact table: supply meter -> weapon uptime / morale cap.
 static func tactical_modifiers(supply: float) -> Dictionary:
@@ -66,9 +67,17 @@ static func seed_skirmish(state: StrategicState, player_fleet: String, enemy_fle
 	# _advance_combat, morale_cap replaces the regen ceiling in Morale.regen).
 	var crew0 := _crew_quality(state, f0["side"])
 	var crew1 := _crew_quality(state, f1["side"])
-	SkirmishConfig.player_uptime_mult = mod0["uptime_mult"] * crew0["crew_quality_uptime_mult"]
+	# Issue #25: commander tactics is a THIRD multiplicative factor, same
+	# chaining pattern crew quality already established here (mod * crew *
+	# commander) -- Roster.commander_tactics falls back to BASELINE_TACTICS
+	# (an exact 1.0x no-op) for a fleet with no commander_id / an unassigned
+	# default, so this is a no-op for every campaign that's never touched
+	# assign_command.
+	var commander0 := Roster.tactics_uptime_mult(Roster.commander_tactics(state, f0["side"], f0))
+	var commander1 := Roster.tactics_uptime_mult(Roster.commander_tactics(state, f1["side"], f1))
+	SkirmishConfig.player_uptime_mult = mod0["uptime_mult"] * crew0["crew_quality_uptime_mult"] * commander0
 	SkirmishConfig.player_morale_cap = clampf(mod0["morale_cap"] + crew0["crew_quality_morale_delta"], 0.0, 100.0)
-	SkirmishConfig.enemy_uptime_mult = mod1["uptime_mult"] * crew1["crew_quality_uptime_mult"]
+	SkirmishConfig.enemy_uptime_mult = mod1["uptime_mult"] * crew1["crew_quality_uptime_mult"] * commander1
 	SkirmishConfig.enemy_morale_cap = clampf(mod1["morale_cap"] + crew1["crew_quality_morale_delta"], 0.0, 100.0)
 	SkirmishConfig.from_map_contact = true
 	SkirmishConfig.contact_fleet_ids = [player_fleet, enemy_fleet]
@@ -115,12 +124,21 @@ static func _crew_quality(state: StrategicState, side: int) -> Dictionary:
 ## (erase()'d entirely, not just overwritten). Applies to both sides (even the
 ## "winner" can take real losses) and both the interactive and AI-vs-AI paths,
 ## same as everything else in this function.
+##
+## Issue #25: each side's `commander_id` is resolved the SAME way, for the
+## SAME reason — Roster.apply_battle_result needs to know who was in command
+## to grow their ambition or (if wiped) kill them, and a wiped fleet's dict
+## is gone by the time that would otherwise run. Resolved to a String up
+## front, never a fleet_id, so Roster.apply_battle_result never touches
+## state.fleets at all.
 static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String,
 		a_strength_left: int, b_strength_left: int, system_id: String) -> void:
 	var a_side: int = state.fleets[fleet_a]["side"]
 	var b_side: int = state.fleets[fleet_b]["side"]
 	var a_old: int = int(state.fleets[fleet_a]["strength"])
 	var b_old: int = int(state.fleets[fleet_b]["strength"])
+	var a_commander: String = state.fleets[fleet_a].get("commander_id", Roster.DEFAULT_COMMANDER_ID)
+	var b_commander: String = state.fleets[fleet_b].get("commander_id", Roster.DEFAULT_COMMANDER_ID)
 	if a_strength_left <= 0:
 		state.fleets.erase(fleet_a)
 	else:
@@ -136,6 +154,9 @@ static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String
 
 	Manpower.apply_casualties(state, a_side, maxi(0, a_old - maxi(a_strength_left, 0)))
 	Manpower.apply_casualties(state, b_side, maxi(0, b_old - maxi(b_strength_left, 0)))
+
+	Roster.apply_battle_result(state, a_side, a_commander, a_strength_left > 0 and b_strength_left <= 0, a_strength_left <= 0)
+	Roster.apply_battle_result(state, b_side, b_commander, b_strength_left > 0 and a_strength_left <= 0, b_strength_left <= 0)
 
 	if a_strength_left > 0:
 		_retreat_if_not_held(state, fleet_a, system_id)

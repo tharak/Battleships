@@ -136,7 +136,13 @@ static func effective_support(state: StrategicState, side: int) -> float:
 	var loyalty_bonus := clampf((replaceability - BASELINE_REPLACEABILITY) * LOYALTY_BONUS_PER_POINT,
 		-LOYALTY_BONUS_CLAMP, LOYALTY_BONUS_CLAMP)
 	var coup_insurance_penalty: float = pol.get("coup_insurance_debt", 0.0) * COUP_INSURANCE_PENALTY
-	return clampf(weighted_support(pol) + loyalty_bonus - coup_insurance_penalty, 0.0, 100.0)
+	# Issue #25: "a brilliant, unsatisfied, ambitious admiral is the classic
+	# coup seed" (GDD §6) -- Roster.ambition_threat_penalty is provably 0.0
+	# for the default roster (every character starts at ambition=0.0), so
+	# this is a true no-op until a real campaign actually grows one via a
+	# won battle (strategic/roster.gd).
+	var ambition_penalty := Roster.ambition_threat_penalty(state, side)
+	return clampf(weighted_support(pol) + loyalty_bonus - coup_insurance_penalty - ambition_penalty, 0.0, 100.0)
 
 
 ## "stable" / "plotting" / "crisis" / "removal" -- pure threshold mapping, not

@@ -42,6 +42,10 @@ class_name StrategicState
 ## `politics`: side (int) -> Dictionary (issue #22, GDD §4.5 — see strategic/
 ## politics.gd for the full field list/formulas). Seeded for sides 0/1/2
 ## alongside `materiel`, same one-default-per-realm precedent as `planets`.
+##
+## `roster`: side (int) -> Dictionary of character_id -> Dictionary (issue
+## #25, GDD §6 — see strategic/roster.gd for the full field list/formulas).
+## Seeded for sides 0/1/2 the same way, one call alongside `politics`.
 
 var tick: int = 0  # weeks
 var fleets: Dictionary = {}  # id -> Dictionary
@@ -49,6 +53,7 @@ var system_owner: Dictionary = {}  # id (String) -> int side
 var materiel: Dictionary = {0: 0.0, 1: 0.0, 2: 0.0}  # side -> stockpile (issue #16: 3 realms)
 var planets: Dictionary = {}  # id (String) -> Dictionary
 var politics: Dictionary = {}  # side (int) -> Dictionary
+var roster: Dictionary = {}  # side (int) -> Dictionary
 
 
 func _init() -> void:
@@ -57,3 +62,4 @@ func _init() -> void:
 		planets[id] = Planet.default_state()
 	for side in [0, 1, 2]:
 		politics[side] = Politics.default_state()
+		roster[side] = Roster.default_state()

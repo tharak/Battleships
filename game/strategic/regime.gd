@@ -109,6 +109,13 @@ static func purge(state: StrategicState, side: int) -> bool:
 	state.materiel[side] = state.materiel.get(side, 0.0) + PURGE_MATERIEL_GAIN
 	for seat in pol["seats"].values():
 		seat["satisfaction"] = maxf(0.0, seat["satisfaction"] - PURGE_PANIC)
+	# Issue #25: a roster character (strategic/roster.gd) may be narratively
+	# seated in the seat just erased -- clear that dangling link so the
+	# roster never claims to hold a seat that no longer exists (which would
+	# corrupt assign_command's own seated/unseated snub-poke logic).
+	for character in state.roster[side].values():
+		if character["seat_id"] == victim_id:
+			character["seat_id"] = null
 	# The direct, mechanical answer to the paper prototype's "coup insurance"
 	# watch-item -- see this file's own docstring. Consumed (and slowly
 	# decayed) by Removal.effective_support/advance, not here.

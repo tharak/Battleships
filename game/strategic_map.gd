@@ -42,6 +42,9 @@ extends Node2D
 ##                               restrict ("narrow") franchise -- realm-wide,
 ##                               silently no-ops if rejected (W bounds or an
 ##                               active instability-window cooldown)
+##   K                          (issue #25) cycle your one fleet's commander to
+##                               the next living roster candidate -- the crony-
+##                               or-genius patronage dilemma, felt directly
 ##   Space                      pause / resume
 ##   1 / 2 / 3                  set speed to 1x / 2x / 4x
 ##   R                          (once the campaign ends) start a new one
@@ -169,11 +172,22 @@ func _launch_battle(contact: Array) -> void:
 	get_tree().change_scene_to_file("res://main.tscn")
 
 
+## Issue #25: this is the one auto-resolve call site that passes each side's
+## real commander tactics -- AI-vs-AI contacts never reach BattleBridge.
+## seed_skirmish (that's only ever called for a player-involved contact), so
+## without this, patronage would be invisible for the majority of a
+## campaign's battles. strategic_ai.gd's own internal power-comparison
+## heuristics (used only for the AI's own attack-or-not decision, a
+## different call site) are deliberately left at their default -- AI realms
+## don't actively reassign commanders until issue #26 exists to decide that.
 func _auto_resolve_contact(contact: Array) -> void:
 	var fa: Dictionary = _sim.state.fleets[contact[0]]
 	var fb: Dictionary = _sim.state.fleets[contact[1]]
 	var system_id: String = fa["system"]
-	var result := AutoResolve.resolve(int(fa["strength"]), float(fa["supply"]), int(fb["strength"]), float(fb["supply"]))
+	var tactics_a := Roster.commander_tactics(_sim.state, fa["side"], fa)
+	var tactics_b := Roster.commander_tactics(_sim.state, fb["side"], fb)
+	var result := AutoResolve.resolve(int(fa["strength"]), float(fa["supply"]), int(fb["strength"]), float(fb["supply"]),
+		tactics_a, tactics_b)
 	BattleBridge.apply_result(_sim.state, contact[0], contact[1], result["a_left"], result["b_left"], system_id)
 
 
@@ -285,6 +299,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_emit_regime_action("expand_franchise")
 			KEY_N:
 				_emit_regime_action("restrict_franchise")
+			KEY_K:
+				_cycle_commander()
 
 
 func _handle_click(pos: Vector2) -> void:
@@ -446,6 +462,7 @@ func _update_label() -> void:
 		]
 	_label.text += _home_front_warning_text()
 	_label.text += _coalition_text()
+	_label.text += _roster_text()
 	_label.text += _planet_panel_text()
 	if _campaign_over:
 		_label.text += "\n\n%s\nPress R to start a new campaign" % _campaign_result
@@ -497,6 +514,80 @@ func _coalition_text() -> String:
 		seat_lines.append("%s (%s) %d%%" % [seat["name"], seat["kind"], int(seat["satisfaction"])])
 	lines += "  ".join(seat_lines)
 	return lines
+
+
+## Issue #25's roster panel: the crony-or-genius patronage dilemma, always
+## visible with real numbers -- same "one click away" precedent the
+## coalition panel above already follows. Shows the player's one fleet's
+## current commander first, then every roster candidate (name, seat-or-
+## "unseated", tactics, ambition, alive) so a K press's tradeoff is legible
+## before and after it's made.
+func _roster_text() -> String:
+	var roster: Dictionary = _sim.state.roster[PLAYER_SIDE]
+	var lines := "\n\n-- Roster (K to cycle your fleet's commander) --\n"
+	var fleet_id := ""
+	for id in _sim.state.fleets.keys():
+		if _sim.state.fleets[id]["side"] == PLAYER_SIDE:
+			fleet_id = id
+			break
+	if fleet_id != "":
+		var commander_id: String = _sim.state.fleets[fleet_id].get("commander_id", Roster.DEFAULT_COMMANDER_ID)
+		if roster.has(commander_id):
+			var c: Dictionary = roster[commander_id]
+			lines += "commanding: %s (tactics %d, ambition %d)\n" % [c["name"], int(c["tactics"]), int(c["ambition"])]
+	else:
+		lines += "commanding: no living fleet\n"
+	var char_ids: Array = roster.keys()
+	char_ids.sort()
+	var char_lines: Array[String] = []
+	for id in char_ids:
+		var c: Dictionary = roster[id]
+		var seat_note: String = c["seat_id"] if c["seat_id"] != null else "unseated"
+		var status_note := "alive" if c["alive"] else "DEAD"
+		char_lines.append("%s (%s, tactics %d, ambition %d, %s)" % [c["name"], seat_note, int(c["tactics"]), int(c["ambition"]), status_note])
+	lines += "  ".join(char_lines)
+	return lines
+
+
+## Issue #25: cycles the player's one fleet's commander to the next ALIVE
+## roster candidate (sorted id, wrapping) -- same "cycle to next value, emit
+## a command" shape as _cycle_policy (T/C/O). Silently does nothing if the
+## player currently has no living fleet (matches strategic_ai.gd's own "v1
+## assumes exactly one fleet per realm" precedent -- there's nothing to
+## assign a commander to).
+func _cycle_commander() -> void:
+	var fleet_id := ""
+	for id in _sim.state.fleets.keys():
+		if _sim.state.fleets[id]["side"] == PLAYER_SIDE:
+			fleet_id = id
+			break
+	if fleet_id == "":
+		return
+	var roster: Dictionary = _sim.state.roster[PLAYER_SIDE]
+	var alive_ids: Array = []
+	for id in roster.keys():
+		if roster[id]["alive"]:
+			alive_ids.append(id)
+	if alive_ids.is_empty():
+		return
+	alive_ids.sort()
+	var current := _pending_commander(fleet_id)
+	var idx := alive_ids.find(current)
+	var next_id: String = alive_ids[(idx + 1) % alive_ids.size()] if idx != -1 else alive_ids[0]
+	_stream.record(StrategicCommands.make(_sim.state.tick, "assign_command", {
+		"side": PLAYER_SIDE, "fleet_id": fleet_id, "character_id": next_id,
+	}))
+
+
+## Same "read the latest still-pending command, not just committed sim
+## state" fix as _pending_policy_value/_pending_budget -- two K presses in a
+## row, before the sim has applied the first, must build on each other.
+func _pending_commander(fleet_id: String) -> String:
+	for i in range(_stream._next_index, _stream.commands.size()):
+		var cmd: Dictionary = _stream.commands[i]
+		if cmd["k"] == "assign_command" and cmd["a"]["fleet_id"] == fleet_id:
+			return cmd["a"]["character_id"]
+	return _sim.state.fleets[fleet_id].get("commander_id", Roster.DEFAULT_COMMANDER_ID)
 
 
 ## Issue #21's showable outcome: "a build where the loudest threat is behind

@@ -27,6 +27,7 @@ func _init() -> void:
 	_test_auto_resolve_even_fight_costs_both_sides()
 	_test_auto_resolve_starved_fleet_fares_worse_than_full_supply()
 	_test_same_fleets_fight_differently_at_full_vs_starved_supply()
+	_test_reassigning_commander_measurably_changes_tactical_modifiers()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -221,3 +222,26 @@ func _test_same_fleets_fight_differently_at_full_vs_starved_supply() -> void:
 	_check(final_red_starved < final_red_full,
 		"starved enemy: red comes out worse than its own full-supply baseline (%d vs %d)" %
 			[final_red_starved, final_red_full])
+
+
+## Issue #25's own showable outcome: "the crony-or-genius fleet command
+## dilemma, felt in an actual battle" -- confirmed via BOTH the player-battle
+## seeding path (BattleBridge.seed_skirmish) and the AI-vs-AI auto-resolve
+## path (AutoResolve.effective_power), not just the isolated Roster formula.
+func _test_reassigning_commander_measurably_changes_tactical_modifiers() -> void:
+	var state := StrategicState.new()
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "dest": null, "preset": "wedge", "supply": 80.0, "strength": 50, "commander_id": "fleet_commander"}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "dest": null, "preset": "swarm", "supply": 80.0, "strength": 30, "commander_id": "fleet_commander"}
+	BattleBridge.seed_skirmish(state, "Blue", "Red")
+	var baseline_mult: float = SkirmishConfig.player_uptime_mult
+	_check(is_equal_approx(baseline_mult, 1.0), "test setup: the default baseline commander produces the exact pre-#25 uptime mult")
+
+	Roster.assign_command(state, 0, "Blue", "genius_officer")
+	BattleBridge.seed_skirmish(state, "Blue", "Red")
+	_check(SkirmishConfig.player_uptime_mult > baseline_mult,
+		"reassigning to the seeded genius measurably RAISES seed_skirmish's uptime multiplier")
+
+	var baseline_power := AutoResolve.effective_power(50, 80.0)
+	var genius_power := AutoResolve.effective_power(50, 80.0, state.roster[0]["genius_officer"]["tactics"])
+	_check(genius_power > baseline_power,
+		"AutoResolve.effective_power: a genius commander measurably raises effective power too (the AI-vs-AI auto-resolve path)")
