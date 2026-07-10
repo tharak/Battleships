@@ -32,6 +32,8 @@ func _init() -> void:
 	_test_coalition_panel_shows_seats_and_budget_split()
 	_test_check_campaign_over_detects_a_political_removal()
 	_test_same_tick_removal_is_not_masked_by_a_pending_contact()
+	_test_regime_action_key_takes_effect_immediately_while_paused()
+	_test_coalition_panel_status_matches_removal_advance_during_instability_window()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -355,3 +357,45 @@ func _test_coalition_panel_shows_seats_and_budget_split() -> void:
 	_check(text.contains("individual") and text.contains("bloc"), "coalition panel: shows each seat's kind")
 	_check(text.contains("military") and text.contains("private") and text.contains("public"),
 		"coalition panel: shows the current budget split")
+
+
+## Issue #24: same "takes effect immediately while paused" precedent as
+## policy/fleet-order/budget commands above -- _emit_regime_action goes
+## through apply_due_commands() every frame regardless of pause state.
+func _test_regime_action_key_takes_effect_immediately_while_paused() -> void:
+	var map := _fresh_map()
+	map._paused = true
+	var w_before: int = map._sim.state.politics[map.PLAYER_SIDE]["seats"].size()
+
+	map._emit_regime_action("broaden")
+	map._process(0.016)
+
+	_check(map._sim.state.politics[map.PLAYER_SIDE]["seats"].size() == w_before + 1,
+		"paused: a regime action (broaden) takes effect on the very next frame, not after unpausing")
+	map.free()
+
+
+## Issue #24 design review's own flagged risk: _coalition_text()'s status
+## line MUST pass the same instability-window threshold_bump Removal.advance
+## uses internally, or the panel can read "stable" the same tick the sim is
+## actually treating the realm as "crisis". Built so it genuinely only
+## crosses into "crisis" once the bump is applied (32.0 sits strictly between
+## CRISIS_THRESHOLD=25 and PLOT_THRESHOLD=40 unbumped, but at/under
+## CRISIS_THRESHOLD+10=35 once bumped) -- a real regression test for the gap,
+## not just re-asserting the formula.
+func _test_coalition_panel_status_matches_removal_advance_during_instability_window() -> void:
+	var map := _fresh_map()
+	var pol: Dictionary = map._sim.state.politics[map.PLAYER_SIDE]
+	for seat in pol["seats"].values():
+		seat["satisfaction"] = 32.0
+	pol["instability_ticks_left"] = 5.0
+
+	var bumped_status := Removal.escalation_state(
+		Removal.effective_support(map._sim.state, map.PLAYER_SIDE), Removal.INSTABILITY_THRESHOLD_BUMP)
+	_check(bumped_status == "crisis",
+		"test setup: this scenario only crosses into crisis once the instability bump is applied")
+
+	var text: String = map._coalition_text()
+	_check(text.contains("CRISIS"),
+		"coalition panel: status line reflects the SAME instability-bumped threshold Removal.advance itself uses")
+	map.free()

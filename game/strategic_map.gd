@@ -38,6 +38,10 @@ extends Node2D
 ##   M / P / G                  (issue #22) shift YOUR budget slider toward
 ##                               military / private / public -- realm-wide,
 ##                               no system needs to be selected
+##   X / B / F / N               (issue #24) purge / broaden / expand franchise /
+##                               restrict ("narrow") franchise -- realm-wide,
+##                               silently no-ops if rejected (W bounds or an
+##                               active instability-window cooldown)
 ##   Space                      pause / resume
 ##   1 / 2 / 3                  set speed to 1x / 2x / 4x
 ##   R                          (once the campaign ends) start a new one
@@ -273,6 +277,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				_shift_budget("budget_private")
 			KEY_G:
 				_shift_budget("budget_public")
+			KEY_X:
+				_emit_regime_action("purge")
+			KEY_B:
+				_emit_regime_action("broaden")
+			KEY_F:
+				_emit_regime_action("expand_franchise")
+			KEY_N:
+				_emit_regime_action("restrict_franchise")
 
 
 func _handle_click(pos: Vector2) -> void:
@@ -386,6 +398,17 @@ func _shift_budget(field: String) -> void:
 	}))
 
 
+## Issue #24: X/B/F/N emit a realm-wide regime action for the player's own
+## side. No selected system needed (same as _shift_budget) -- Regime.gd's own
+## guards (W bounds, an active instability-window cooldown) decide whether it
+## actually takes effect; a rejected action silently no-ops, same convention
+## as every other command in this scene.
+func _emit_regime_action(action: String) -> void:
+	_stream.record(StrategicCommands.make(_sim.state.tick, "set_regime_action", {
+		"side": PLAYER_SIDE, "action": action,
+	}))
+
+
 ## Same "read the latest still-pending command, not just committed sim state"
 ## fix already applied to planet policies (_pending_policy_value) -- two M/P/G
 ## presses in a row, before the sim has had a chance to apply the first,
@@ -434,12 +457,20 @@ func _update_label() -> void:
 ## important control... it must never be more than one click away."
 func _coalition_text() -> String:
 	var pol: Dictionary = _sim.state.politics[PLAYER_SIDE]
-	var lines := "\n\n-- Coalition (W=%d) --\n" % pol["seats"].size()
+	var lines := "\n\n-- Coalition (W=%d, S=%d%%) --\n" % [pol["seats"].size(), int(pol["s_percent"])]
 	# Issue #23: the same "status: X" precedent as _planet_panel_text()'s
 	# escalation-state line -- "visible, escalating... no gotchas" for the
 	# removal-crisis pipeline too, not just planet unrest.
+	#
+	# Issue #24: MUST pass the same instability-window threshold_bump
+	# Removal.advance computes internally, or this panel can read "stable" the
+	# same tick the sim is actually treating the realm as "crisis" -- a design
+	# review flagged this exact gap. Kept in sync by hand (both call sites
+	# compute it the same way from pol["instability_ticks_left"]) since
+	# advance()'s own bump is a local var, not stored state to read back.
 	var support := Removal.effective_support(_sim.state, PLAYER_SIDE)
-	var status := Removal.escalation_state(support)
+	var threshold_bump: float = Removal.INSTABILITY_THRESHOLD_BUMP if pol.get("instability_ticks_left", 0.0) > 0.0 else 0.0
+	var status := Removal.escalation_state(support, threshold_bump)
 	# "removal" is deliberately not a normal display case -- by the time it
 	# fires, _check_campaign_over() has already ended the campaign this same
 	# tick and _fire_removal() has already reset satisfaction back to a
@@ -451,7 +482,10 @@ func _coalition_text() -> String:
 		"crisis": "CRISIS -- active plot against you, satisfaction eroding",
 		"removal": "REMOVED FROM POWER",
 	}.get(status, "stable")
+	if pol.get("instability_ticks_left", 0.0) > 0.0:
+		status_note += "  [instability window: %d ticks left]" % int(ceil(pol["instability_ticks_left"]))
 	lines += "status: %s\n" % status_note
+	lines += "regime actions: X purge  B broaden  F expand franchise  N restrict franchise\n"
 	lines += "budget: military %d%%  private %d%%  public %d%%   (M/P/G to shift)\n" % [
 		int(round(pol["budget_military"] * 100.0)), int(round(pol["budget_private"] * 100.0)), int(round(pol["budget_public"] * 100.0)),
 	]

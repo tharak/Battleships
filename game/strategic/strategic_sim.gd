@@ -168,6 +168,22 @@ func _apply(cmd: Dictionary) -> void:
 				pol["budget_military"] = military / total
 				pol["budget_private"] = private / total
 				pol["budget_public"] = public / total
+		"set_regime_action":
+			# Issue #24: dispatch to the matching Regime.* function, which owns
+			# its own precondition guards (W bounds, instability cooldown) and
+			# returns bool -- intentionally discarded here, same "no player-
+			# visible rejection feedback" convention every other command already
+			# follows (e.g. an out-of-bounds garrison adjustment above).
+			var side: int = a["side"]
+			match String(a["action"]):
+				"purge":
+					Regime.purge(state, side)
+				"broaden":
+					Regime.broaden(state, side)
+				"expand_franchise":
+					Regime.expand_franchise(state, side)
+				"restrict_franchise":
+					Regime.restrict_franchise(state, side)
 
 
 ## Pops the next hop off `f["path"]` into `f["dest"]`, resetting progress — or

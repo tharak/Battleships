@@ -70,6 +70,15 @@ static func default_state() -> Dictionary:
 		# removed from power (a coup or a lost election) -- display-only for
 		# every side except the player, whom strategic_map.gd checks this for.
 		"election_countdown": 52.0, "removed_flag": false, "removal_reason": "",
+		# Issue #24 (regime.gd/removal.gd): instability_ticks_left is a shared
+		# cooldown + threshold-easing window opened by any regime action;
+		# coup_insurance_debt is a slowly-decaying tax on effective_support that
+		# compounds with purge frequency (removal.gd's own watch-item fix);
+		# next_seat_id is broaden()'s monotonic counter for synthesizing a
+		# collision-free new seat key, surviving any later purge of that or any
+		# other seat. Plain literals, same "no cross-file constant reference in
+		# default_state()" precedent as election_countdown above.
+		"instability_ticks_left": 0.0, "coup_insurance_debt": 0.0, "next_seat_id": 0,
 	}
 
 

@@ -34,6 +34,18 @@ class_name Removal
 ## synthetic-seat unit tests (mirroring test_politics.gd's own 12-seat
 ## dilution test technique) — a live probe cannot exercise either one
 ## pre-#24, and that's stated here plainly rather than implied otherwise.
+##
+## Issue #24 update: strategic/regime.gd is what actually moves W/S now (via
+## purge/broaden/expand_franchise/restrict_franchise), so the two mechanisms
+## above are live from here on. That issue's own design review caught a real
+## structural risk this file needed to fix regardless of regime.gd's own
+## tuning: `loyalty_bonus` below was UNCLAMPED, and #24 is precisely what
+## makes its blowup reachable (purge down to W=3 + expand franchise to
+## s_percent=100 -- ~9 actions, comfortably inside a campaign -- pins
+## `effective_support` at 100 forever, regardless of actual seat
+## satisfaction). Now clamped. `coup_insurance_debt` (regime.gd's purge()) and
+## `instability_ticks_left` (every regime action) are consumed here too --
+## see effective_support/escalation_state/advance below.
 
 const SMALL_W_THRESHOLD := 6         # W <= this: continuous coup risk. Above it: the election clock.
                                        # The #22 default seed (W=6, a genuine 50/50 individual/bloc
@@ -59,6 +71,38 @@ const CRISIS_SATISFACTION_PENALTY := 1.0
 ## used throughout this codebase's tuning.
 const BASELINE_REPLACEABILITY := 20.0 / 6.0
 const LOYALTY_BONUS_PER_POINT := 5.0
+## Issue #24 design review: without a clamp, purge-to-W=3 + franchise-to-100
+## (both reachable within one campaign once regime.gd exists) pins the raw
+## bonus at +150, permanently pinning effective_support at 100 regardless of
+## actual seat satisfaction. 25.0 is roughly two threshold-bands wide (e.g.
+## PLOT_THRESHOLD - CRISIS_THRESHOLD == 15.0) -- enough for the loyalty norm
+## to still meaningfully move a realm's classification, not enough to make it
+## immune to one entirely on its own.
+const LOYALTY_BONUS_CLAMP := 25.0
+
+## Issue #24 (regime.gd's purge()): the direct fix for the paper prototype's
+## own "coup insurance" watch-item -- see regime.gd's docstring. Chosen
+## relative to LOYALTY_BONUS_PER_POINT (5.0) so one purge's ongoing cost is
+## comparable to, not swamped by or dominant over, a single point of
+## replaceability swing. Decays rather than staying permanent -- a truly
+## permanent counter would make one early-campaign purge an irreversible
+## support ceiling for the rest of a 100+ tick campaign, cutting against
+## "steering is a campaign-long project" (GDD §4.5) far more than the
+## watch-item asked for; ~20 ticks to fully clear one purge's debt if no
+## further purge occurs is long enough to matter, short enough not to trap.
+const COUP_INSURANCE_PENALTY := 4.0
+const COUP_INSURANCE_DECAY := 0.05
+
+## Issue #24 (regime.gd): every regime action opens this shared window --
+## while active, no NEW regime action can be issued (a real cooldown, reusing
+## this same timer rather than a second counter) and a crisis is EASIER to
+## trigger, by this many points, on all three thresholds below (matches the
+## paper prototype's own "+10pp survival threshold" cost -- GDD's prose calls
+## the same effect "lowering crisis thresholds", opposite framing of the
+## identical mechanic: the numeric threshold CONSTANTS below get RAISED so
+## the comparison is easier to satisfy, they are not lowered).
+const INSTABILITY_WINDOW_TICKS := 8.0
+const INSTABILITY_THRESHOLD_BUMP := 10.0
 
 
 ## GDD's own continuous-score philosophy (same as Planet's unrest): a
@@ -89,21 +133,27 @@ static func effective_support(state: StrategicState, side: int) -> float:
 	var pol: Dictionary = state.politics[side]
 	var w: int = pol["seats"].size()
 	var replaceability: float = pol["s_percent"] / maxf(1.0, float(w))
-	var loyalty_bonus := (replaceability - BASELINE_REPLACEABILITY) * LOYALTY_BONUS_PER_POINT
-	return clampf(weighted_support(pol) + loyalty_bonus, 0.0, 100.0)
+	var loyalty_bonus := clampf((replaceability - BASELINE_REPLACEABILITY) * LOYALTY_BONUS_PER_POINT,
+		-LOYALTY_BONUS_CLAMP, LOYALTY_BONUS_CLAMP)
+	var coup_insurance_penalty: float = pol.get("coup_insurance_debt", 0.0) * COUP_INSURANCE_PENALTY
+	return clampf(weighted_support(pol) + loyalty_bonus - coup_insurance_penalty, 0.0, 100.0)
 
 
 ## "stable" / "plotting" / "crisis" / "removal" -- pure threshold mapping, not
 ## stored state (derived on demand, same as Rebellion's own escalation_state).
 ## Ties resolve to the MORE severe stage (<=, not <) -- matches Rebellion.
 ## escalation_state's own tie convention (unrest==90.0 exactly is already
-## "rebellion").
-static func escalation_state(support: float) -> String:
-	if support <= REMOVAL_THRESHOLD:
+## "rebellion"). `threshold_bump` (issue #24): added to all three comparisons,
+## so a caller mid-instability-window and advance()'s own internal firing
+## decision can never disagree -- see strategic_map.gd's _coalition_text,
+## which MUST pass the same bump advance() computes below or the player-
+## facing status line can silently disagree with what the sim just decided.
+static func escalation_state(support: float, threshold_bump: float = 0.0) -> String:
+	if support <= REMOVAL_THRESHOLD + threshold_bump:
 		return "removal"
-	elif support <= CRISIS_THRESHOLD:
+	elif support <= CRISIS_THRESHOLD + threshold_bump:
 		return "crisis"
-	elif support <= PLOT_THRESHOLD:
+	elif support <= PLOT_THRESHOLD + threshold_bump:
 		return "plotting"
 	else:
 		return "stable"
@@ -116,11 +166,22 @@ static func advance(state: StrategicState, side: int) -> void:
 	var pol: Dictionary = state.politics[side]
 	var w: int = pol["seats"].size()
 	var support := effective_support(state, side)
-	var st := escalation_state(support)
+	var instability_active: bool = pol.get("instability_ticks_left", 0.0) > 0.0
+	var threshold_bump := INSTABILITY_THRESHOLD_BUMP if instability_active else 0.0
+	var st := escalation_state(support, threshold_bump)
 
 	if st == "crisis" or st == "removal":
 		for seat in pol["seats"].values():
 			seat["satisfaction"] = maxf(0.0, seat["satisfaction"] - CRISIS_SATISFACTION_PENALTY)
+
+	# Issue #24: decay both regime.gd-owned counters once per tick, in this
+	# same fixed-side-list loop (strategic_sim.gd's _advance_removal already
+	# iterates state.politics.keys(), the #16/#22/#23-taught-safe pattern --
+	# no new iteration risk from adding these here).
+	if instability_active:
+		pol["instability_ticks_left"] = maxf(0.0, pol["instability_ticks_left"] - 1.0)
+	if pol.get("coup_insurance_debt", 0.0) > 0.0:
+		pol["coup_insurance_debt"] = maxf(0.0, pol["coup_insurance_debt"] - COUP_INSURANCE_DECAY)
 
 	if w <= SMALL_W_THRESHOLD:
 		# Continuous coup risk: fires the instant support crosses the floor, any tick.

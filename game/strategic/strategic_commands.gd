@@ -22,8 +22,15 @@ class_name StrategicCommands
 ##                 apply time (rejected entirely, keeping the prior split, if
 ##                 all three clamp to a non-positive total -- see strategic_sim.gd's
 ##                 _apply for why a zero-sum renormalization must never happen)
+##   set_regime_action  a: {side, action} -- issue #24's steering toolkit. action is
+##                 one of "purge"/"broaden"/"expand_franchise"/"restrict_franchise"
+##                 (see strategic/regime.gd). Dispatched to the matching Regime.*
+##                 function, which validates its own preconditions (W bounds, an
+##                 active instability-window cooldown) and silently no-ops if
+##                 rejected -- same "no player-visible rejection feedback" UX as
+##                 an out-of-bounds set_policy garrison adjustment.
 
-const KINDS := ["spawn_fleet", "order_move", "set_policy", "set_budget"]
+const KINDS := ["spawn_fleet", "order_move", "set_policy", "set_budget", "set_regime_action"]
 
 
 static func make(tick: int, kind: String, args: Dictionary) -> Dictionary:
