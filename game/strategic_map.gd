@@ -333,9 +333,32 @@ func _update_label() -> void:
 			_sim.state.tick, speed_txt, fleet_txt,
 			int(_sim.state.materiel.get(0, 0.0)), int(_sim.state.materiel.get(1, 0.0)), int(_sim.state.materiel.get(2, 0.0)),
 		]
+	_label.text += _home_front_warning_text()
 	_label.text += _planet_panel_text()
 	if _campaign_over:
 		_label.text += "\n\n%s\nPress R to start a new campaign" % _campaign_result
+
+
+## Issue #21's showable outcome: "a build where the loudest threat is behind
+## your lines" only actually works if a player fixated on a distant war can
+## STILL notice it -- the per-system planet panel (below) only shows once you
+## already know to right-click that exact world. This is the passive,
+## always-visible half: whichever of the player's own systems currently has
+## the worst unrest, surfaced unconditionally in the main HUD the instant it
+## clears the strikes threshold, not buried behind a click.
+func _home_front_warning_text() -> String:
+	var worst_id := ""
+	var worst_unrest := -1.0
+	for id in _sim.state.system_owner.keys():
+		if _sim.state.system_owner[id] != PLAYER_SIDE:
+			continue
+		var unrest: float = _sim.state.planets[id]["unrest"]
+		if unrest > worst_unrest:
+			worst_unrest = unrest
+			worst_id = id
+	if worst_id == "" or Rebellion.escalation_state(worst_unrest) == "calm":
+		return ""
+	return "\n⚠ %s: %s (unrest %d%%)" % [worst_id, Rebellion.escalation_state(worst_unrest).to_upper(), int(worst_unrest)]
 
 
 ## Issue #17's showable outcome: a planet panel where policy changes visibly move

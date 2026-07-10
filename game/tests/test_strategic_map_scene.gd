@@ -23,6 +23,8 @@ func _init() -> void:
 	_test_rapid_policy_cycles_before_a_tick_still_advance_each_time()
 	_test_draw_does_not_crash_on_a_rebel_owned_system()
 	_test_planet_panel_shows_escalation_state_and_siege_progress()
+	_test_home_front_warning_surfaces_the_worst_owned_system_unprompted()
+	_test_home_front_warning_ignores_calm_and_other_realms_systems()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -205,4 +207,28 @@ func _test_planet_panel_shows_escalation_state_and_siege_progress() -> void:
 	_check(rebel_text.contains("REBELLION"), "planet panel: a rebel-held system reads as such")
 	_check(rebel_text.contains("7") and rebel_text.contains(str(int(Rebellion.SIEGE_TICKS))),
 		"planet panel: shows the current siege progress against its target")
+	map.free()
+
+
+## Issue #21's showable outcome ("a build where the loudest threat is behind
+## your lines") needs this to be visible WITHOUT the player having selected
+## anything -- unlike the planet panel, which only shows once you've already
+## right-clicked the exact system in trouble.
+func _test_home_front_warning_surfaces_the_worst_owned_system_unprompted() -> void:
+	var map := _fresh_map()
+	_check(map._selected_system == "", "test setup: nothing is selected")
+	map._sim.state.planets["A2"]["unrest"] = 65.0  # strikes
+	map._sim.state.planets["A3"]["unrest"] = 80.0  # riots -- the worse one
+	var text: String = map._home_front_warning_text()
+	_check(text.contains("A3") and text.contains("RIOTS"),
+		"home front warning: surfaces whichever owned system is worst, unprompted")
+	_check(not text.contains("A2"), "home front warning: only shows the single worst system, not every troubled one")
+	map.free()
+
+
+func _test_home_front_warning_ignores_calm_and_other_realms_systems() -> void:
+	var map := _fresh_map()
+	_check(map._home_front_warning_text() == "", "home front warning: silent when every owned system is calm")
+	map._sim.state.planets["B1"]["unrest"] = 95.0  # a rival realm's own system, not the player's
+	_check(map._home_front_warning_text() == "", "home front warning: never surfaces another realm's troubles as your own")
 	map.free()
