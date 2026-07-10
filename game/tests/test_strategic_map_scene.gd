@@ -30,6 +30,8 @@ func _init() -> void:
 	_test_shift_budget_moves_the_targeted_share_up_and_others_down()
 	_test_rapid_budget_shifts_before_a_tick_still_compound()
 	_test_coalition_panel_shows_seats_and_budget_split()
+	_test_check_campaign_over_detects_a_political_removal()
+	_test_same_tick_removal_is_not_masked_by_a_pending_contact()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -100,6 +102,46 @@ func _test_check_campaign_over_detects_elimination() -> void:
 	_check(map._campaign_over, "check_campaign_over: ends the campaign once only one realm has a fleet left")
 	_check(map._campaign_result.begins_with("VICTORY"),
 		"check_campaign_over: the player being the sole survivor is a victory")
+	map.free()
+
+
+func _test_check_campaign_over_detects_a_political_removal() -> void:
+	var map := _fresh_map()
+	map._sim.state.politics[map.PLAYER_SIDE]["removed_flag"] = true
+	map._sim.state.politics[map.PLAYER_SIDE]["removal_reason"] = "election"
+	map._check_campaign_over()
+	_check(map._campaign_over, "check_campaign_over: a political removal ends the campaign too, not just fleet elimination")
+	_check(map._campaign_result.begins_with("DEFEAT") and map._campaign_result.contains("election"),
+		"check_campaign_over: the message reflects the actual removal reason")
+	map.free()
+
+
+## Regression for a design review's finding: a same-tick removal must not be
+## masked by an unrelated tactical battle launching first. Without the fix,
+## _process()'s contact-detection/_launch_battle path returns BEFORE
+## _check_campaign_over() is ever reached this frame (a real scene-change
+## attempt via get_tree().change_scene_to_file, which this headless test
+## would rather never trigger at all) -- the fix checks removed_flag
+## immediately after _sim.step(), ahead of contact detection.
+func _test_same_tick_removal_is_not_masked_by_a_pending_contact() -> void:
+	var map := _fresh_map()
+	map._process(0.0)  # materialize _ready()'s initial spawn_fleet commands
+	var player_fleet := ""
+	for id in map._sim.state.fleets.keys():
+		if map._sim.state.fleets[id]["side"] == map.PLAYER_SIDE:
+			player_fleet = id
+	# Move an enemy fleet onto the player's fleet's system -- a genuine
+	# contact BattleBridge.detect_contact will find and _launch_battle would
+	# otherwise act on before _check_campaign_over ever runs.
+	for id in map._sim.state.fleets.keys():
+		if map._sim.state.fleets[id]["side"] != map.PLAYER_SIDE:
+			map._sim.state.fleets[id]["system"] = map._sim.state.fleets[player_fleet]["system"]
+			map._sim.state.fleets[id]["dest"] = null
+	_check(not BattleBridge.detect_contact(map._sim.state).is_empty(), "test setup: a real contact exists this tick")
+
+	map._sim.state.politics[map.PLAYER_SIDE]["removed_flag"] = true
+	map._process(0.6)  # forces at least one _sim.step() to run this frame
+	_check(map._campaign_over, "same-tick removal: the campaign ends even though a contact was also pending this same tick")
 	map.free()
 
 

@@ -62,6 +62,14 @@ static func default_state() -> Dictionary:
 		},
 		"s_percent": 20.0,
 		"budget_military": 0.4, "budget_private": 0.3, "budget_public": 0.3,
+		# Issue #23 (removal.gd): election_countdown ticks down between scheduled
+		# elections for large-W realms (plain literal matching Removal.
+		# ELECTION_PERIOD_TICKS by value, same "no cross-file constant reference
+		# in default_state()" precedent as siege_progress/rebelled_from above);
+		# removed_flag/removal_reason mark a realm whose ruler has just been
+		# removed from power (a coup or a lost election) -- display-only for
+		# every side except the player, whom strategic_map.gd checks this for.
+		"election_countdown": 52.0, "removed_flag": false, "removal_reason": "",
 	}
 
 

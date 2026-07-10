@@ -125,6 +125,17 @@ func _process(delta: float) -> void:
 			for ai in _ai_realms:
 				ai.act(_sim.state, _stream)
 			_sim.step(_stream)
+			# Issue #23: checked immediately, before contact detection/
+			# _launch_battle -- a design review caught that a same-tick
+			# removal would otherwise be masked by an unrelated tactical
+			# battle launching first (_check_campaign_over() is never
+			# reached in that branch, since _launch_battle returns early).
+			# The sticky (never auto-cleared) removed_flag means nothing is
+			# lost forever either way, but the player would see one
+			# unnecessary battle before the DEFEAT message ever showed.
+			_check_campaign_over()
+			if _campaign_over:
+				break  # (not return) -- still falls through to _update_label()/queue_redraw() this frame
 			var contact := BattleBridge.detect_contact(_sim.state)
 			# AI-vs-AI contacts resolve on the spot, no scene transition -- keep
 			# resolving chained contacts (possible at 2x/4x speed, where several
@@ -170,6 +181,22 @@ func _auto_resolve_contact(contact: Array) -> void:
 ## surviving strength at the cap "wins" for demo purposes.
 func _check_campaign_over() -> void:
 	if _campaign_over:
+		return
+	# Issue #23, GDD §7: "You lose when you fall -- not when the state does" --
+	# the political loss condition is checked FIRST, ahead of the "blunter"
+	# military-annihilation ending below, matching GDD's own framing of the
+	# two as distinct with removal being primary. Hard game over (OQ6): no
+	# exile/comeback mode, matching the GDD draft's own stated default -- this
+	# codebase has no successor/continuation system that would make one
+	# meaningful anyway. removed_flag is symmetric across all sides
+	# (Removal.gd deliberately doesn't special-case the player), so only the
+	# PLAYER's own flag ends the campaign here.
+	if _sim.state.politics[PLAYER_SIDE].get("removed_flag", false):
+		_campaign_over = true
+		_paused = true
+		var reason: String = _sim.state.politics[PLAYER_SIDE].get("removal_reason", "coup")
+		_campaign_result = ("DEFEAT — a coup removed you from power" if reason == "coup"
+			else "DEFEAT — you lost the election, removed from power")
 		return
 	var alive_sides := {}
 	for id in _sim.state.fleets.keys():
@@ -408,6 +435,23 @@ func _update_label() -> void:
 func _coalition_text() -> String:
 	var pol: Dictionary = _sim.state.politics[PLAYER_SIDE]
 	var lines := "\n\n-- Coalition (W=%d) --\n" % pol["seats"].size()
+	# Issue #23: the same "status: X" precedent as _planet_panel_text()'s
+	# escalation-state line -- "visible, escalating... no gotchas" for the
+	# removal-crisis pipeline too, not just planet unrest.
+	var support := Removal.effective_support(_sim.state, PLAYER_SIDE)
+	var status := Removal.escalation_state(support)
+	# "removal" is deliberately not a normal display case -- by the time it
+	# fires, _check_campaign_over() has already ended the campaign this same
+	# tick and _fire_removal() has already reset satisfaction back to a
+	# stable baseline, so this line is never actually shown mid-removal in
+	# practice; included anyway for correctness, not left to silently
+	# mislabel as "stable".
+	var status_note: String = {
+		"stable": "stable", "plotting": "PLOTTING -- a coup/no-confidence rumor is brewing",
+		"crisis": "CRISIS -- active plot against you, satisfaction eroding",
+		"removal": "REMOVED FROM POWER",
+	}.get(status, "stable")
+	lines += "status: %s\n" % status_note
 	lines += "budget: military %d%%  private %d%%  public %d%%   (M/P/G to shift)\n" % [
 		int(round(pol["budget_military"] * 100.0)), int(round(pol["budget_private"] * 100.0)), int(round(pol["budget_public"] * 100.0)),
 	]

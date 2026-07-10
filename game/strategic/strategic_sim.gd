@@ -34,6 +34,7 @@ func step(stream: StrategicCommandStream) -> Array:
 	_advance_rebellion()
 	_advance_supply()
 	_advance_economy()
+	_advance_removal()
 	state.tick += 1
 	return events
 
@@ -102,6 +103,16 @@ func _advance_economy() -> void:
 		Shipyard.rebuild(state, id)
 	for side in state.politics.keys():
 		Politics.advance(state, side, revenue.get(side, 0.0))
+
+
+## Issue #23: removal-crisis escalation, settled right after _advance_economy
+## so this reads that same tick's freshly-drifted Politics.advance output.
+## Fixed side list (state.politics.keys()), same #16/#22 lesson already
+## learned twice -- a side reduced to zero systems still has politics that
+## must keep evolving, not freeze.
+func _advance_removal() -> void:
+	for side in state.politics.keys():
+		Removal.advance(state, side)
 
 
 func run_stream(stream: StrategicCommandStream, ticks: int) -> void:
