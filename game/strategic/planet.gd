@@ -53,11 +53,20 @@ const TAXATION := {
 const TAXATION_LEVELS := ["light", "moderate", "heavy", "punitive"]
 
 ## volunteer -> total: "more manpower, +unrest, -population long-term" (GDD §4.2).
+## crew_quality_uptime_mult/crew_quality_morale_delta (issue #19, GDD §5.8):
+## "Volunteer-only recruitment yields fewer but higher-quality crews
+## (experience bonus, §5.8)" -- read by strategic/battle_bridge.gd's
+## seed_skirmish and folded into the existing supply-derived uptime_mult/
+## morale_cap tactical contract (issue #14), not a separate mechanic.
 const CONSCRIPTION := {
-	"volunteer": {"manpower_mult": 0.5, "unrest_target": 0.0,  "population_drain": 0.0},
-	"moderate":  {"manpower_mult": 1.0, "unrest_target": 10.0, "population_drain": 0.05},
-	"heavy":     {"manpower_mult": 1.6, "unrest_target": 30.0, "population_drain": 0.15},
-	"total":     {"manpower_mult": 2.2, "unrest_target": 60.0, "population_drain": 0.35},
+	"volunteer": {"manpower_mult": 0.5, "unrest_target": 0.0,  "population_drain": 0.0,
+		"crew_quality_uptime_mult": 1.15, "crew_quality_morale_delta": 5.0},
+	"moderate":  {"manpower_mult": 1.0, "unrest_target": 10.0, "population_drain": 0.05,
+		"crew_quality_uptime_mult": 1.0,  "crew_quality_morale_delta": 0.0},
+	"heavy":     {"manpower_mult": 1.6, "unrest_target": 30.0, "population_drain": 0.15,
+		"crew_quality_uptime_mult": 0.9,  "crew_quality_morale_delta": -5.0},
+	"total":     {"manpower_mult": 2.2, "unrest_target": 60.0, "population_drain": 0.35,
+		"crew_quality_uptime_mult": 0.8,  "crew_quality_morale_delta": -10.0},
 }
 const CONSCRIPTION_LEVELS := ["volunteer", "moderate", "heavy", "total"]
 

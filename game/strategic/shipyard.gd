@@ -22,6 +22,20 @@ const REBUILD_RATE := 2                     # strength points/tick a dock can ab
 const SHIPYARDS := {"A1": 0, "B1": 1, "C1": 2}  # system id -> the side whose realm it belongs to
 
 
+## Reverse of SHIPYARDS -- issue #19's "a fleet's home planet" (there's no
+## per-fleet recruiting-planet field, and strategic_ai.gd already documents
+## "v1 assumes exactly one fleet per realm", so the realm's one shipyard IS
+## its one home planet). Same static-identity semantics as SHIPYARDS itself:
+## callers that care whether the realm still actually HOLDS it (Manpower.
+## apply_casualties does) check state.system_owner separately, same as
+## rebuild() above does for this exact table.
+static func home_system(side: int) -> String:
+	for id in SHIPYARDS.keys():
+		if SHIPYARDS[id] == side:
+			return id
+	return ""
+
+
 ## Passive materiel income, driven by each owned system's planet (issue #17,
 ## GDD §4.2: "Industry produces materiel... and tax revenue") instead of a flat
 ## per-system constant — a taxation policy change now visibly moves this same

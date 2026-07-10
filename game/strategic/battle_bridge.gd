@@ -59,13 +59,32 @@ static func seed_skirmish(state: StrategicState, player_fleet: String, enemy_fle
 	SkirmishConfig.terrain_option = "none"
 	var mod0 := tactical_modifiers(f0["supply"])
 	var mod1 := tactical_modifiers(f1["supply"])
-	SkirmishConfig.player_uptime_mult = mod0["uptime_mult"]
-	SkirmishConfig.player_morale_cap = mod0["morale_cap"]
-	SkirmishConfig.enemy_uptime_mult = mod1["uptime_mult"]
-	SkirmishConfig.enemy_morale_cap = mod1["morale_cap"]
+	# Issue #19, GDD §5.8: "crew experience (volunteer vs conscript)" folded
+	# into the same supply-derived uptime/morale contract #14 already built,
+	# not a separate mechanic -- no sim.gd changes needed, both fields are
+	# already consumed there (uptime_mult multiplies fire_mult in
+	# _advance_combat, morale_cap replaces the regen ceiling in Morale.regen).
+	var crew0 := _crew_quality(state, f0["side"])
+	var crew1 := _crew_quality(state, f1["side"])
+	SkirmishConfig.player_uptime_mult = mod0["uptime_mult"] * crew0["crew_quality_uptime_mult"]
+	SkirmishConfig.player_morale_cap = clampf(mod0["morale_cap"] + crew0["crew_quality_morale_delta"], 0.0, 100.0)
+	SkirmishConfig.enemy_uptime_mult = mod1["uptime_mult"] * crew1["crew_quality_uptime_mult"]
+	SkirmishConfig.enemy_morale_cap = clampf(mod1["morale_cap"] + crew1["crew_quality_morale_delta"], 0.0, 100.0)
 	SkirmishConfig.from_map_contact = true
 	SkirmishConfig.contact_fleet_ids = [player_fleet, enemy_fleet]
 	SkirmishConfig.contact_system = f0["system"]  # both fleets share this system, by definition of a contact
+
+
+## `side`'s home planet's conscription-level crew-quality entry (Planet.
+## CONSCRIPTION), or a moderate-equivalent no-op if it has none — currently
+## unreachable (every side maps into Shipyard.SHIPYARDS today) but guarded
+## the same defensive way as Manpower.apply_casualties for consistency, not
+## because it's reachable now.
+static func _crew_quality(state: StrategicState, side: int) -> Dictionary:
+	var home := Shipyard.home_system(side)
+	if not state.planets.has(home):
+		return {"crew_quality_uptime_mult": 1.0, "crew_quality_morale_delta": 0.0}
+	return Planet.CONSCRIPTION[state.planets[home]["conscription"]]
 
 
 ## Battle → strategic write-back (minimal, see this file's docstring): the
@@ -88,10 +107,20 @@ static func seed_skirmish(state: StrategicState, player_fleet: String, enemy_fle
 ## finds itself as the "nearest" one and doesn't move. One rule covers both the
 ## interactive and auto-resolved paths, since it only looks at the strength/
 ## ownership numbers both already produce, not at how the battle was fought.
+##
+## Issue #19: casualties (pre-battle strength minus post-battle strength-left)
+## drain the losing crews' OWN side's home planet's manpower and raise its
+## unrest (Manpower.apply_casualties) — read BEFORE the erase/strength-update
+## below, since for a wiped fleet the pre-battle value doesn't survive that
+## (erase()'d entirely, not just overwritten). Applies to both sides (even the
+## "winner" can take real losses) and both the interactive and AI-vs-AI paths,
+## same as everything else in this function.
 static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String,
 		a_strength_left: int, b_strength_left: int, system_id: String) -> void:
 	var a_side: int = state.fleets[fleet_a]["side"]
 	var b_side: int = state.fleets[fleet_b]["side"]
+	var a_old: int = int(state.fleets[fleet_a]["strength"])
+	var b_old: int = int(state.fleets[fleet_b]["strength"])
 	if a_strength_left <= 0:
 		state.fleets.erase(fleet_a)
 	else:
@@ -104,6 +133,9 @@ static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String
 		state.system_owner[system_id] = a_side
 	elif b_strength_left > 0 and a_strength_left <= 0:
 		state.system_owner[system_id] = b_side
+
+	Manpower.apply_casualties(state, a_side, maxi(0, a_old - maxi(a_strength_left, 0)))
+	Manpower.apply_casualties(state, b_side, maxi(0, b_old - maxi(b_strength_left, 0)))
 
 	if a_strength_left > 0:
 		_retreat_if_not_held(state, fleet_a, system_id)
