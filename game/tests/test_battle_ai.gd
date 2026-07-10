@@ -113,8 +113,12 @@ func _test_ai_beats_careless_player() -> void:
 		sim.step(stream)
 		# Blue is careless: it never gets a turn to react, on purpose.
 
-	var blue_left := 0
-	var red_left := 0
+	# Includes escaped_strength (the map-border feature): a routed squadron now
+	# has somewhere real to actually flee to, so a squadron missing from
+	# state.squadrons might have escaped rather than been destroyed -- either
+	# way it shouldn't just vanish from this test's own count.
+	var blue_left: int = sim.state.fleets[0]["escaped_strength"]
+	var red_left: int = sim.state.fleets[1]["escaped_strength"]
 	for id in sim.state.squadrons.keys():
 		var sq: Dictionary = sim.state.squadrons[id]
 		if sq["side"] == 0:
@@ -174,8 +178,10 @@ func _test_good_flank_beats_ai() -> void:
 		ai.act(sim.state, stream)
 		sim.step(stream)
 
-	var blue_left := 0
-	var red_left := 0
+	# Includes escaped_strength (the map-border feature) -- see the same note
+	# on the careless-player scenario above.
+	var blue_left: int = sim.state.fleets[0]["escaped_strength"]
+	var red_left: int = sim.state.fleets[1]["escaped_strength"]
 	for id in sim.state.squadrons.keys():
 		var sq: Dictionary = sim.state.squadrons[id]
 		if sq["side"] == 0:

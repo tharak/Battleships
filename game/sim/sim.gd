@@ -18,6 +18,17 @@ const FACE_TOLERANCE := 15.0  # must be within this many degrees of desired_faci
 const COHESION_TURN_COST := 0.6   # cohesion lost per degree turned
 const COHESION_REGEN := 15.0      # cohesion regained per second while not turning
 
+## Map border: a squadron that ends up outside this box escapes the battle
+## entirely (see _advance_border). Sized to comfortably contain the demo's
+## spawn/engagement geometry (player/enemy anchors ~320 units apart, both well
+## inside Combat.RANGE=220 of the box's own margins) while still being
+## reachable by a determined retreat in real playtime — the nearest edge from
+## the middle of a typical engagement is roughly 300-400 units away, which is
+## tens of seconds at a routed squadron's flee speed (SPEED * Morale.
+## FLEE_SPEED_MULT ≈ 13.2/sec), not an unreachable horizon.
+const BORDER_MIN := Vector2(0.0, 0.0)
+const BORDER_MAX := Vector2(1000.0, 640.0)
+
 var state: BattleState
 
 
@@ -25,20 +36,21 @@ func _init(seed_value: int) -> void:
 	state = BattleState.new(seed_value)
 
 
-## Advance exactly one tick: apply commands due this tick, then kinematics, combat,
-## morale. Never call anything else to mutate state — this is the determinism
-## contract. Returns this tick's events (hits/destructions/routs/rallies) so a caller
-## like main.gd can render them without re-deriving them; nothing inside Sim itself
-## depends on the return value.
+## Advance exactly one tick: apply commands due this tick, then kinematics, the
+## map border, combat, morale. Never call anything else to mutate state — this
+## is the determinism contract. Returns this tick's events (escapes/hits/
+## destructions/routs/rallies) so a caller like main.gd can render them without
+## re-deriving them; nothing inside Sim itself depends on the return value.
 func step(stream: CommandStream) -> Array:
 	for cmd in stream.due(state.tick):
 		_apply(cmd)
 	var dt := 1.0 / TICKS_PER_SEC
 	_advance_kinematics(dt)
+	var escape_events := _advance_border()
 	var combat_events := _advance_combat(dt)
-	var morale_events := _advance_morale(dt, combat_events)
+	var morale_events := _advance_morale(dt, combat_events, escape_events)
 	state.tick += 1
-	return combat_events + morale_events
+	return escape_events + combat_events + morale_events
 
 
 func run_stream(stream: CommandStream, ticks: int) -> void:
@@ -179,6 +191,50 @@ func _advance_flee(sq: Dictionary, dt: float) -> void:
 	sq["pos"] = sq["pos"] + Vector2(cos(heading), sin(heading)) * speed * dt
 
 
+## Map border: a squadron whose position ends up outside BORDER_MIN/BORDER_MAX
+## after this tick's movement escapes the battle entirely — removed from play,
+## its strength (and a unit count, for the HUD) credited to its own side's
+## escaped_strength/escaped_count tallies (main.gd reads these back for the
+## strategic write-back, or just "how many got away" bookkeeping in a
+## standalone skirmish). Checked right after kinematics and BEFORE combat, so
+## an escaping squadron doesn't get one last exchange of fire in on its way
+## out.
+##
+## Applies uniformly regardless of routed state or side — a deliberate player
+## order past the border is just as valid an escape as a routed squadron's
+## autopilot flee carrying it there, and the AI's own WITHDRAW posture
+## (battle_ai.gd) can now genuinely walk a losing fleet off the map for real,
+## no special-casing needed for either. Deliberately free — no delay, no
+## partial-strength cost — a real way to decline or break off a losing fight
+## through maneuver, not an oversight to close.
+##
+## An escaping FLAGSHIP is flagged here; _advance_morale is what actually
+## applies the same flagship_lost penalty/shock a destroyed flagship gets
+## (just not the nearby-friendlies contagion a kill causes — see its
+## docstring). Without that, fleeing the flagship first would be a strictly
+## dominant, free tactic: Command.flagship_pos already treats "no living
+## squadron with flag=true" as command lost the instant it's gone from
+## state.squadrons, escaped or destroyed alike, so skipping the flagship_lost
+## fork here would let a losing side dodge the permanent regen penalty and
+## one-time shock a real flagship death costs, for free, just by fleeing it
+## instead of losing it.
+func _advance_border() -> Array:
+	var events := []
+	var ids := state.squadrons.keys()
+	ids.sort()
+	for id in ids:
+		var sq: Dictionary = state.squadrons[id]
+		var pos: Vector2 = sq["pos"]
+		if pos.x < BORDER_MIN.x or pos.x > BORDER_MAX.x or pos.y < BORDER_MIN.y or pos.y > BORDER_MAX.y:
+			var side: int = sq["side"]
+			var was_flag: bool = sq["flag"]
+			state.fleets[side]["escaped_strength"] += int(sq["strength"])
+			state.fleets[side]["escaped_count"] += 1
+			state.squadrons.erase(id)
+			events.append({"type": "escaped", "id": id, "side": side, "flag": was_flag, "pos": pos})
+	return events
+
+
 ## Beam combat (issue #5): each squadron with a legal target (Combat.pick_target)
 ## deals continuous damage every tick. Firer and target are both read from live state
 ## (not a start-of-tick snapshot) — a squadron already hit earlier this same tick by
@@ -225,14 +281,20 @@ func _advance_combat(dt: float) -> Array:
 ## that's the whole of "recovers when disengaged". Rout/rally transitions are
 ## checked after damage+regen settle, and a fresh rout fires contagion to nearby
 ## friendlies; a friendly's destruction this same tick does too, using the position
-## the combat pass captured before erasing it.
+## the combat pass captured before erasing it. An escape (map border) does NOT
+## trigger that contagion — "it got away" reads as better news than "it died",
+## and a routing squadron already drained nearby allies' morale (NEARBY_ROUT_
+## PENALTY) at the moment it routed, independent of what happens to it after —
+## but an escaping FLAGSHIP still costs the fleet the same flagship_lost
+## penalty/shock a destroyed one would (see _apply_flagship_lost and
+## _advance_border's docstring for why).
 ## Command radius (issue #8): regen is boosted for squadrons within COMMAND_RADIUS of
 ## their side's living flagship, and permanently reduced fleet-wide once it's gone —
 ## on top of the immediate fleet-wide shock every survivor takes the instant it dies.
 ## Squadrons freshly hit by that shock have their rout transition checked next tick,
 ## not this one (transitions are checked once, earlier in this same function) — a
 ## one-tick (0.1s) detection delay on a shock-induced rout, not a correctness bug.
-func _advance_morale(dt: float, combat_events: Array) -> Array:
+func _advance_morale(dt: float, combat_events: Array, escape_events: Array) -> Array:
 	var events := []
 	var hit_ids := {}
 	for ev in combat_events:
@@ -271,11 +333,24 @@ func _advance_morale(dt: float, combat_events: Array) -> Array:
 			var f: Dictionary = state.squadrons[fid]
 			f["morale"] = maxf(0.0, f["morale"] - Morale.NEARBY_DEATH_PENALTY)
 		if ev["flag"]:
-			state.fleets[ev["side"]]["flagship_lost"] = true
-			events.append({"type": "flagship_lost", "side": ev["side"]})
-			for sid in state.squadrons.keys():
-				var s: Dictionary = state.squadrons[sid]
-				if s["side"] == ev["side"]:
-					s["morale"] = maxf(0.0, s["morale"] - Command.FLAGSHIP_LOST_SHOCK)
+			events.append(_apply_flagship_lost(ev["side"]))
+
+	for ev in escape_events:
+		if ev["flag"]:
+			events.append(_apply_flagship_lost(ev["side"]))
 
 	return events
+
+
+## Shared by a destroyed flagship (issue #8) and an escaped one (map border
+## feature) — same permanent penalty and one-time shock either way, since
+## Command.flagship_pos can't tell "dead" from "gone" apart and losing command
+## costs the same regardless. Callers decide separately whether to ALSO run
+## nearby-friendlies contagion (a kill does, an escape deliberately doesn't).
+func _apply_flagship_lost(side: int) -> Dictionary:
+	state.fleets[side]["flagship_lost"] = true
+	for sid in state.squadrons.keys():
+		var s: Dictionary = state.squadrons[sid]
+		if s["side"] == side:
+			s["morale"] = maxf(0.0, s["morale"] - Command.FLAGSHIP_LOST_SHOCK)
+	return {"type": "flagship_lost", "side": side}

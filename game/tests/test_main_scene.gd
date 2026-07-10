@@ -13,6 +13,7 @@ var _failures := 0
 func _init() -> void:
 	print("test_main_scene — Godot ", Engine.get_version_info()["string"])
 	_test_apply_formation_moves_the_real_scene()
+	_test_battle_over_write_back_includes_escaped_strength()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -76,4 +77,48 @@ func _test_apply_formation_moves_the_real_scene() -> void:
 			all_same_facing = false
 	_check(all_same_facing, "spindle formation: every non-sphere slot ends up facing the same way")
 
+	main.free()
+
+
+## The map-border feature's strategic write-back: a fleet that escapes rather than
+## being destroyed must still count as "strength left" in what gets handed back to
+## strategic_map.gd via BattleBridge.apply_result, not silently dropped. Exercises
+## the real scene's _check_battle_over, not a reimplementation of its summing logic.
+func _test_battle_over_write_back_includes_escaped_strength() -> void:
+	var prev_from_contact := SkirmishConfig.from_map_contact
+	var prev_side0 := SkirmishConfig.battle_side0_strength_left
+	var prev_side1 := SkirmishConfig.battle_side1_strength_left
+	SkirmishConfig.from_map_contact = true
+
+	var scene: PackedScene = load("res://main.tscn")
+	var main := scene.instantiate()
+	get_root().add_child(main)
+	main._ready()
+	main._sim.step(main._stream)  # apply the tick-0 spawn commands
+
+	var blue_ids: Array[String] = []
+	var expected_strength := 0
+	for id in main._sim.state.squadrons.keys():
+		if main._sim.state.squadrons[id]["side"] == main.PLAYER_SIDE:
+			blue_ids.append(id)
+			expected_strength += main._sim.state.squadrons[id]["strength"]
+	_check(expected_strength > 0, "write-back setup: the demo scene actually spawns some blue strength to escape with")
+
+	# Force every blue squadron past the border in one shot — _advance_border runs
+	# before combat, so this whole fleet escapes clean, none of it destroyed.
+	for id in blue_ids:
+		var pos: Vector2 = main._sim.state.squadrons[id]["pos"]
+		main._sim.state.squadrons[id]["pos"] = Vector2(Sim.BORDER_MAX.x + 50.0, pos.y)
+	main._sim.step(main._stream)
+
+	main._check_battle_over()
+	_check(main._battle_result.begins_with("WITHDRAWAL"),
+		"battle-over: a wholly-escaped blue fleet against a surviving red reads as a withdrawal, not a defeat")
+	var got: int = SkirmishConfig.battle_side0_strength_left
+	_check(got == expected_strength,
+		"battle-over write-back: escaped strength is folded into the strategic strength-left sum (got %d want %d)" % [got, expected_strength])
+
+	SkirmishConfig.from_map_contact = prev_from_contact
+	SkirmishConfig.battle_side0_strength_left = prev_side0
+	SkirmishConfig.battle_side1_strength_left = prev_side1
 	main.free()

@@ -15,15 +15,21 @@ class_name BattleState
 ##   equivalent stored field but rout does)
 ##
 ## `fleets` is small per-side state that isn't naturally a squadron field: index 0/1
-## by side, {"flagship_lost": bool, "uptime_mult": float, "morale_cap": float}.
+## by side, {"flagship_lost": bool, "uptime_mult": float, "morale_cap": float,
+## "escaped_strength": int, "escaped_count": int}.
 ## flagship_lost is GDD §5.6's permanent morale penalty and command radius loss
-## once a flagship dies (sim/command.gd). uptime_mult/morale_cap are the strategic
-## ↔ tactical contract's supply modifiers (issue #14, GDD §5.8's table: ≥66 supply
-## → 1.0/100, 33-65 → 0.75/90, <33 → 0.5/75) — set once at battle start from
-## strategic state (strategic/battle_bridge.gd), read by Sim._advance_combat
-## (uptime_mult multiplies a side's fire_mult) and Morale.regen (morale_cap
-## replaces the usual 100.0 ceiling). Default 1.0/100.0 for any battle not seeded
-## from the strategic layer (the skirmish menu, every existing test).
+## once a flagship dies (sim/command.gd) — also set when the flagship ESCAPES
+## (sim.gd's _advance_border), not just when it's destroyed; see that function's
+## docstring for why. uptime_mult/morale_cap are the strategic ↔ tactical
+## contract's supply modifiers (issue #14, GDD §5.8's table: ≥66 supply → 1.0/100,
+## 33-65 → 0.75/90, <33 → 0.5/75) — set once at battle start from strategic state
+## (strategic/battle_bridge.gd), read by Sim._advance_combat (uptime_mult
+## multiplies a side's fire_mult) and Morale.regen (morale_cap replaces the usual
+## 100.0 ceiling). Default 1.0/100.0 for any battle not seeded from the strategic
+## layer (the skirmish menu, every existing test). escaped_strength/escaped_count
+## (the map-border feature) accumulate a side's squadrons that left via the
+## border instead of being destroyed — strength that should NOT count as a loss
+## when tallying a battle's outcome (main.gd's _check_battle_over).
 ##
 ## `terrain` (issue #9, GDD §5.7): id -> {kind: String, pos: Vector2, radius: float}.
 ## Seeded once via "spawn_terrain" commands and never mutated afterward — there's no
@@ -42,8 +48,8 @@ var tick: int = 0
 var rng: RandomNumberGenerator
 var squadrons: Dictionary = {}  # id (String) -> Dictionary
 var fleets: Array[Dictionary] = [
-	{"flagship_lost": false, "uptime_mult": 1.0, "morale_cap": 100.0},
-	{"flagship_lost": false, "uptime_mult": 1.0, "morale_cap": 100.0},
+	{"flagship_lost": false, "uptime_mult": 1.0, "morale_cap": 100.0, "escaped_strength": 0, "escaped_count": 0},
+	{"flagship_lost": false, "uptime_mult": 1.0, "morale_cap": 100.0, "escaped_strength": 0, "escaped_count": 0},
 ]
 var terrain: Dictionary = {}    # id (String) -> {kind, pos, radius}
 

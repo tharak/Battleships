@@ -414,19 +414,20 @@ func _check_battle_over() -> void:
 		return
 	_battle_over = true
 	_paused = true
-	if blue_alive:
-		_battle_result = "VICTORY — the enemy fleet was destroyed"
-	elif red_alive:
-		_battle_result = "DEFEAT — your fleet was wiped out"
-	else:
-		_battle_result = "MUTUAL ANNIHILATION — nobody was left standing"
+	var blue_escaped: int = _sim.state.fleets[PLAYER_SIDE]["escaped_strength"]
+	var red_escaped: int = _sim.state.fleets[1 - PLAYER_SIDE]["escaped_strength"]
+	var blue_status := _side_status(blue_alive, blue_escaped)
+	var red_status := _side_status(red_alive, red_escaped)
+	_battle_result = _compose_battle_result(blue_status, red_status)
 
 	# Issue #14's battle -> strategic write-back: record survivors so
 	# strategic_map.gd can apply them via BattleBridge.apply_result once we
-	# return there (see the KEY_R handler below).
+	# return there (see the KEY_R handler below). Escaped strength counts as a
+	# survivor too — a squadron that fled past the border is not a loss, it's
+	# a fleet that made it back to the strategic layer under its own power.
 	if SkirmishConfig.from_map_contact:
-		var side0_left := 0
-		var side1_left := 0
+		var side0_left: int = _sim.state.fleets[0]["escaped_strength"]
+		var side1_left: int = _sim.state.fleets[1]["escaped_strength"]
 		for id in _sim.state.squadrons.keys():
 			var sq: Dictionary = _sim.state.squadrons[id]
 			if sq["side"] == 0:
@@ -435,6 +436,44 @@ func _check_battle_over() -> void:
 				side1_left += sq["strength"]
 		SkirmishConfig.battle_side0_strength_left = side0_left
 		SkirmishConfig.battle_side1_strength_left = side1_left
+
+
+## A side with no squadrons left in play is either destroyed (no strength made
+## it out) or withdrawn (some did, via the map border) — these read very
+## differently and both matter for _compose_battle_result below.
+func _side_status(alive: bool, escaped_strength: int) -> String:
+	if alive:
+		return "in_play"
+	elif escaped_strength > 0:
+		return "withdrawn"
+	else:
+		return "destroyed"
+
+
+## Composes the end-of-battle message from each side's independent status.
+## "Withdrawn" is deliberately not treated as a synonym for "destroyed" —
+## per the map-border feature's free/no-friction escape design, a fleet that
+## broke off through maneuver survived, even though it's off the board.
+func _compose_battle_result(blue_status: String, red_status: String) -> String:
+	match [blue_status, red_status]:
+		["in_play", "destroyed"]:
+			return "VICTORY — the enemy fleet was destroyed"
+		["in_play", "withdrawn"]:
+			return "VICTORY — the enemy fleet withdrew before you could finish it off"
+		["destroyed", "in_play"]:
+			return "DEFEAT — your fleet was wiped out"
+		["withdrawn", "in_play"]:
+			return "WITHDRAWAL — you pulled your fleet back before it could be destroyed"
+		["destroyed", "destroyed"]:
+			return "MUTUAL ANNIHILATION — nobody was left standing"
+		["withdrawn", "withdrawn"]:
+			return "MUTUAL WITHDRAWAL — both fleets broke off the engagement"
+		["destroyed", "withdrawn"]:
+			return "DEFEAT — your fleet was destroyed while the enemy withdrew"
+		["withdrawn", "destroyed"]:
+			return "VICTORY — the enemy fleet was destroyed as you withdrew"
+		_:
+			return "BATTLE OVER"
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -659,12 +698,14 @@ func _update_label() -> void:
 		else:
 			red_n += 1; red_str += sq["strength"]
 			if sq["routed"]: red_routed += 1
+	var blue_escaped: int = _sim.state.fleets[PLAYER_SIDE]["escaped_count"]
+	var red_escaped: int = _sim.state.fleets[1 - PLAYER_SIDE]["escaped_count"]
 	_label.text = ("tick %d   %s   hash %s   selected: %s\n" +
-		"Blue: %d squadrons, %d strength, %d routed   Red: %d squadrons, %d strength, %d routed\n" +
+		"Blue: %d squadrons, %d strength, %d routed, %d escaped   Red: %d squadrons, %d strength, %d routed, %d escaped\n" +
 		"drag-select (left) · move (right-click) · turn (Q/E) · form up (F1-F6) · speed (Space/1/2/3)") % [
 		_sim.state.tick, speed_txt, _sim.state.state_hash().left(10),
 		(", ".join(_selected) if not _selected.is_empty() else "none"),
-		blue_n, blue_str, blue_routed, red_n, red_str, red_routed,
+		blue_n, blue_str, blue_routed, blue_escaped, red_n, red_str, red_routed, red_escaped,
 	]
 	if _battle_over:
 		_label.text += "\n\n%s\nPress R to return to the skirmish menu" % _battle_result
@@ -673,6 +714,7 @@ func _update_label() -> void:
 func _draw() -> void:
 	if _sim == null:
 		return
+	_draw_border()
 	for id in _sim.state.terrain.keys():
 		_draw_terrain_field(_sim.state.terrain[id])
 	for side in [0, 1]:
@@ -685,6 +727,24 @@ func _draw() -> void:
 		var rect := Rect2(_drag_start, Vector2.ZERO).expand(_drag_current)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.15), true)
 		draw_rect(rect, Color(0.4, 0.7, 1.0, 0.8), false, 1.5)
+
+
+## The map border (see sim/sim.gd's BORDER_MIN/BORDER_MAX and Sim._advance_border):
+## a squadron that crosses this dashed line escapes the battle for good, strength
+## intact. Drawn first, under the terrain/command-radius overlays, as a boundary
+## rather than a foreground mark — same reasoning as _draw_terrain_field below.
+func _draw_border() -> void:
+	var corners := [
+		Vector2(Sim.BORDER_MIN.x, Sim.BORDER_MIN.y),
+		Vector2(Sim.BORDER_MAX.x, Sim.BORDER_MIN.y),
+		Vector2(Sim.BORDER_MAX.x, Sim.BORDER_MAX.y),
+		Vector2(Sim.BORDER_MIN.x, Sim.BORDER_MAX.y),
+	]
+	var color := Color(1.0, 1.0, 1.0, 0.35)
+	for i in corners.size():
+		var a := _project_to_screen(corners[i])
+		var b := _project_to_screen(corners[(i + 1) % corners.size()])
+		draw_dashed_line(a, b, color, 1.5, 10.0)
 
 
 ## Asteroid field (issue #9, GDD §5.7): a translucent brownish disc so it reads as
