@@ -16,6 +16,11 @@ func _init() -> void:
 	_test_involves_player_covers_all_three_side_pairs()
 	_test_auto_resolve_contact_leaves_no_scene_pending()
 	_test_check_campaign_over_detects_elimination()
+	_test_inspect_click_selects_and_deselects_an_owned_system()
+	_test_inspect_click_ignores_a_system_outside_intel_range()
+	_test_policy_keys_are_ignored_on_a_system_the_player_does_not_own()
+	_test_policy_cycle_and_garrison_step_emit_real_commands()
+	_test_rapid_policy_cycles_before_a_tick_still_advance_each_time()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -86,4 +91,78 @@ func _test_check_campaign_over_detects_elimination() -> void:
 	_check(map._campaign_over, "check_campaign_over: ends the campaign once only one realm has a fleet left")
 	_check(map._campaign_result.begins_with("VICTORY"),
 		"check_campaign_over: the player being the sole survivor is a victory")
+	map.free()
+
+
+## Issue #17's planet panel: right-click select/deselect on a system the player
+## owns (A1, native and starting territory for side 0).
+func _test_inspect_click_selects_and_deselects_an_owned_system() -> void:
+	var map := _fresh_map()
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A1"]["pos"])
+	_check(map._selected_system == "A1", "inspect click: selects the clicked system")
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A1"]["pos"])
+	_check(map._selected_system == "", "inspect click: clicking the same system again deselects it")
+	map.free()
+
+
+## C1 (Sector C's hub) is outside side 0's default intel range -- own systems
+## plus one lane beyond never reaches across two full sectors (Intel.visible_systems).
+func _test_inspect_click_ignores_a_system_outside_intel_range() -> void:
+	var map := _fresh_map()
+	_check(not Intel.visible_systems(map._sim.state, map.PLAYER_SIDE).has("C1"),
+		"test setup: C1 really is outside the player's starting intel range")
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["C1"]["pos"])
+	_check(map._selected_system == "", "inspect click: a system outside intel range can't be selected at all")
+	map.free()
+
+
+## B2 is visible by default (one lane beyond A2, the A-B chokepoint spoke) but
+## native/owned by side 1 -- inspectable (read-only) but not editable.
+func _test_policy_keys_are_ignored_on_a_system_the_player_does_not_own() -> void:
+	var map := _fresh_map()
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["B2"]["pos"])
+	_check(map._selected_system == "B2", "test setup: B2 selected for inspection")
+	_check(not map._can_edit_selected_system(), "ownership gate: a foreign system can't be edited")
+	var before: String = map._sim.state.planets["B2"]["taxation"]
+	map._cycle_policy("taxation", Planet.TAXATION_LEVELS)
+	map._step_garrison(5.0)
+	_check(map._sim.state.planets["B2"]["taxation"] == before,
+		"policy keys: cycling taxation on a system you don't own is a no-op")
+	_check(map._sim.state.planets["B2"]["garrison"] == 0.0,
+		"policy keys: stepping garrison on a system you don't own is a no-op")
+	map.free()
+
+
+## The full path: a key handler records a set_policy command (never pokes state
+## directly, per this scene's own "no direct UI-to-sim pokes" discipline) -- it
+## only takes effect once the sim actually steps and applies it.
+func _test_policy_cycle_and_garrison_step_emit_real_commands() -> void:
+	var map := _fresh_map()
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A1"]["pos"])
+	_check(map._can_edit_selected_system(), "test setup: A1 is owned by the player and selected")
+	var before: String = map._sim.state.planets["A1"]["taxation"]
+	map._cycle_policy("taxation", Planet.TAXATION_LEVELS)
+	map._step_garrison(5.0)
+	_check(map._sim.state.planets["A1"]["taxation"] == before,
+		"set_policy: recording a command doesn't mutate state directly, only the stream")
+	map._sim.step(map._stream)
+	_check(map._sim.state.planets["A1"]["taxation"] != before,
+		"set_policy: the recorded taxation change actually applies once the sim steps")
+	_check(map._sim.state.planets["A1"]["garrison"] == 5.0,
+		"set_policy: the recorded garrison step actually applies once the sim steps")
+	map.free()
+
+
+## Two T presses in a row (e.g. while paused, before the sim has applied the
+## first one yet) must advance the level twice, not emit the same "next" value
+## twice because both reads saw the same stale current state.
+func _test_rapid_policy_cycles_before_a_tick_still_advance_each_time() -> void:
+	var map := _fresh_map()
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A1"]["pos"])
+	_check(map._sim.state.planets["A1"]["taxation"] == "moderate", "test setup: starts at moderate")
+	map._cycle_policy("taxation", Planet.TAXATION_LEVELS)  # moderate -> heavy
+	map._cycle_policy("taxation", Planet.TAXATION_LEVELS)  # heavy -> punitive (must NOT re-request heavy)
+	map._sim.step(map._stream)
+	_check(map._sim.state.planets["A1"]["taxation"] == "punitive",
+		"rapid cycle: two presses before any tick still land two levels up, not one")
 	map.free()

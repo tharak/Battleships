@@ -12,8 +12,13 @@ class_name StrategicCommands
 ##   order_move    a: {id, path: [system_id, ...]} -- hop sequence to travel,
 ##                 NOT including the fleet's current system (see
 ##                 Galaxy.shortest_path, which already returns it in this form)
+##   set_policy    a: {system, field, value} -- issue #17's planet policy sliders.
+##                 field is one of "taxation"/"conscription"/"garrison"/
+##                 "occupation"; value is a level String for the first/last two
+##                 (see strategic/planet.gd's *_LEVELS/*_STANCES) or a float for
+##                 garrison (clamped to the planet's current manpower at apply time)
 
-const KINDS := ["spawn_fleet", "order_move"]
+const KINDS := ["spawn_fleet", "order_move", "set_policy"]
 
 
 static func make(tick: int, kind: String, args: Dictionary) -> Dictionary:

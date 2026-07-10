@@ -47,8 +47,10 @@ func _test_accrue_scales_with_owned_systems() -> void:
 	var state := StrategicState.new()
 	var before: float = state.materiel[0]
 	Shipyard.accrue(state)
-	# Side 0 (player) owns exactly the 4 A-sector systems by default.
-	_check(state.materiel[0] == before + 4 * Shipyard.MATERIEL_PER_SYSTEM_PER_TICK,
+	# Side 0 (player) owns exactly the 4 A-sector systems by default. Issue #17:
+	# income is now planet-industry-driven, but a fresh planet at default policy
+	# produces exactly Planet.INDUSTRY_BASE (the old flat constant's value).
+	_check(state.materiel[0] == before + 4 * Planet.INDUSTRY_BASE,
 		"accrue: income scales with how many systems a side currently owns")
 
 
@@ -59,7 +61,7 @@ func _test_accrue_scales_with_owned_systems() -> void:
 func _test_accrue_credits_all_three_realms() -> void:
 	var state := StrategicState.new()
 	Shipyard.accrue(state)
-	var per_sector := 4 * Shipyard.MATERIEL_PER_SYSTEM_PER_TICK
+	var per_sector := 4 * Planet.INDUSTRY_BASE
 	_check(state.materiel[0] == per_sector, "accrue: side 0 (player, Sector A) gets its income")
 	_check(state.materiel[1] == per_sector, "accrue: side 1 (AI realm, Sector B) also gets its income")
 	_check(state.materiel[2] == per_sector, "accrue: side 2 (AI realm, Sector C) also gets its income")

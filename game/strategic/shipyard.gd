@@ -17,27 +17,31 @@ class_name Shipyard
 ## and if the shipyard itself is threatened or materiel runs dry, it can't
 ## keep up with losses, which is the whole shape of a war of attrition.
 
-const MATERIEL_PER_SYSTEM_PER_TICK := 2.0  # income per owned system per week
 const MATERIEL_PER_STRENGTH := 5.0          # cost to rebuild one strength point
 const REBUILD_RATE := 2                     # strength points/tick a dock can absorb, materiel permitting
 const SHIPYARDS := {"A1": 0, "B1": 1, "C1": 2}  # system id -> the side whose realm it belongs to
 
 
-## Passive materiel income, scaled by how many systems each side currently
-## owns — more territory means more industry, same as GDD §4.2. Derives the
-## set of sides from whatever's actually present in system_owner (skipping -1
-## neutral) rather than a hardcoded [0, 1] — issue #16 added a 3rd realm, and a
-## fixed 2-side loop here silently starved it of income entirely (caught by
-## this file's own test suite once a 3rd side was introduced).
+## Passive materiel income, driven by each owned system's planet (issue #17,
+## GDD §4.2: "Industry produces materiel... and tax revenue") instead of a flat
+## per-system constant — a taxation policy change now visibly moves this same
+## number. Derives the set of sides from whatever's actually present in
+## system_owner (skipping -1 neutral) rather than a hardcoded [0, 1] — issue #16
+## added a 3rd realm, and a fixed 2-side loop here silently starved it of income
+## entirely (caught by this file's own test suite once a 3rd side was introduced).
+## At every planet's default policy/population, Planet.materiel_output() equals
+## exactly Planet.INDUSTRY_BASE (== the old flat constant's value), so a fresh
+## campaign's income is unchanged from before this issue existed — only an
+## actual policy change (or population drift) moves it.
 static func accrue(state: StrategicState) -> void:
-	var counts := {}
+	var totals := {}
 	for id in state.system_owner.keys():
 		var side: int = state.system_owner[id]
 		if side < 0:
 			continue
-		counts[side] = counts.get(side, 0) + 1
-	for side in counts.keys():
-		state.materiel[side] = state.materiel.get(side, 0.0) + counts[side] * MATERIEL_PER_SYSTEM_PER_TICK
+		totals[side] = totals.get(side, 0.0) + Planet.materiel_output(state.planets[id])
+	for side in totals.keys():
+		state.materiel[side] = state.materiel.get(side, 0.0) + totals[side]
 
 
 ## Repairs one fleet by up to REBUILD_RATE strength this tick, IF it's docked

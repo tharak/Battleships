@@ -30,13 +30,22 @@ class_name StrategicState
 ## `materiel`: side (int) -> float stockpile (issue #15, GDD §4.2/§4.4) — accrues
 ## passively per owned system (strategic/shipyard.gd's accrue) and is spent
 ## rebuilding docked fleets' lost strength (shipyard.gd's rebuild).
+##
+## `planets`: system id -> Dictionary (issue #17, GDD §4.2 — see strategic/
+## planet.gd for the full field list/formulas). One planet per system (MVP
+## simplification), seeded for every Galaxy.SYSTEMS id regardless of ownership —
+## a planet's stats persist through conquest (Planet.advance just reads whichever
+## side currently owns it), and an unowned/neutral system's planet simply doesn't
+## evolve (Planet.advance's owner==-1 early-out) until someone claims it.
 
 var tick: int = 0  # weeks
 var fleets: Dictionary = {}  # id -> Dictionary
 var system_owner: Dictionary = {}  # id (String) -> int side
 var materiel: Dictionary = {0: 0.0, 1: 0.0, 2: 0.0}  # side -> stockpile (issue #16: 3 realms)
+var planets: Dictionary = {}  # id (String) -> Dictionary
 
 
 func _init() -> void:
 	for id in Galaxy.SYSTEMS.keys():
 		system_owner[id] = Galaxy.SYSTEMS[id]["owner"]
+		planets[id] = Planet.default_state()

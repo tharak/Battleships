@@ -31,10 +31,22 @@ func step(stream: StrategicCommandStream) -> Array:
 	for cmd in stream.due(state.tick):
 		_apply(cmd)
 	var events := _advance_fleets()
+	_advance_planets()
 	_advance_supply()
 	_advance_economy()
 	state.tick += 1
 	return events
+
+
+## Issue #17: policy drift/growth for every planet, settled BEFORE _advance_economy
+## so this tick's taxation/conscription changes are what Shipyard.accrue actually
+## reads (same "read the current tick's outcome, not last tick's" ordering already
+## used throughout this function).
+func _advance_planets() -> void:
+	var ids := state.planets.keys()
+	ids.sort()
+	for id in ids:
+		Planet.advance(state, id)
 
 
 func _advance_supply() -> void:
@@ -76,6 +88,14 @@ func _apply(cmd: Dictionary) -> void:
 					return
 				f["path"] = path
 				_start_next_hop(f)
+		"set_policy":
+			if state.planets.has(a["system"]):
+				var p: Dictionary = state.planets[a["system"]]
+				var field: String = a["field"]
+				if field == "garrison":
+					p["garrison"] = clampf(float(a["value"]), 0.0, p["manpower"])
+				else:
+					p[field] = String(a["value"])
 
 
 ## Pops the next hop off `f["path"]` into `f["dest"]`, resetting progress — or

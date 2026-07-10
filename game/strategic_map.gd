@@ -29,6 +29,12 @@ extends Node2D
 ##   left click a fleet marker   select it (only your own, blue/side 0)
 ##   left click a system        send the selected fleet there (auto-pathed via
 ##                               Galaxy.shortest_path over the lane graph)
+##   right click a system       inspect its planet panel (issue #17) -- click again
+##                               to deselect; only currently-visible systems can be
+##                               inspected (GDD §4.6 fog of war)
+##   T / C / [ / ] / O          (while a system you OWN is inspected) cycle
+##                               taxation / conscription / garrison -- / garrison
+##                               ++ / occupation stance
 ##   Space                      pause / resume
 ##   1 / 2 / 3                  set speed to 1x / 2x / 4x
 ##   R                          (once the campaign ends) start a new one
@@ -38,6 +44,7 @@ const TICKS_PER_SEC := 2.0  # weeks/real-second at 1x speed
 const SYSTEM_RADIUS := 16.0
 const FLEET_RADIUS := 8.0
 const SELECT_RADIUS := 22.0
+const GARRISON_STEP := 5.0
 const SIDE_COLOR := {
 	0: Color(0.29, 0.62, 1.0), 1: Color(1.0, 0.35, 0.35), 2: Color(0.35, 0.8, 0.4), -1: Color(0.55, 0.55, 0.58),
 }
@@ -51,6 +58,7 @@ var _accum := 0.0
 var _speed := 1.0
 var _paused := false
 var _selected_fleet := ""
+var _selected_system := ""
 var _campaign_over := false
 var _campaign_result := ""
 
@@ -189,6 +197,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
 			_handle_click(mb.position)
+		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			_handle_system_inspect_click(mb.position)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match (event as InputEventKey).keycode:
 			KEY_SPACE:
@@ -203,6 +213,16 @@ func _unhandled_input(event: InputEvent) -> void:
 				if _campaign_over:
 					StrategicSession.sim = null
 					get_tree().reload_current_scene()
+			KEY_T:
+				_cycle_policy("taxation", Planet.TAXATION_LEVELS)
+			KEY_C:
+				_cycle_policy("conscription", Planet.CONSCRIPTION_LEVELS)
+			KEY_O:
+				_cycle_policy("occupation", Planet.OCCUPATION_STANCES)
+			KEY_BRACKETLEFT:
+				_step_garrison(-GARRISON_STEP)
+			KEY_BRACKETRIGHT:
+				_step_garrison(GARRISON_STEP)
 
 
 func _handle_click(pos: Vector2) -> void:
@@ -230,6 +250,62 @@ func _handle_click(pos: Vector2) -> void:
 			return
 
 
+## Issue #17's planet panel: a separate gesture (right-click) from left-click's
+## fleet-select/move-order, so it needs zero changes to that existing logic.
+## Only a currently-visible system can be inspected (GDD §4.6 fog of war — the
+## same Intel.visible_systems gate _draw() already applies to enemy fleets), and
+## clicking the already-selected system again deselects it (this scene has no
+## other deselect mechanism at all, for fleets or systems).
+func _handle_system_inspect_click(pos: Vector2) -> void:
+	var visible := Intel.visible_systems(_sim.state, PLAYER_SIDE)
+	for id in Galaxy.SYSTEMS.keys():
+		var sys: Dictionary = Galaxy.SYSTEMS[id]
+		if (sys["pos"] as Vector2).distance_to(pos) <= SELECT_RADIUS and visible.has(id):
+			_selected_system = "" if _selected_system == id else id
+			return
+
+
+## T/C/O share this: read the selected system's current level for `field`,
+## advance it to the next in `levels` (wrapping), emit a set_policy command.
+## A no-op unless a system is selected AND the player actually owns it —
+## inspecting a foreign system is read-only.
+func _cycle_policy(field: String, levels: Array) -> void:
+	if not _can_edit_selected_system():
+		return
+	var current: String = _pending_policy_value(field)
+	var next: String = levels[(levels.find(current) + 1) % levels.size()]
+	_stream.record(StrategicCommands.make(_sim.state.tick, "set_policy", {
+		"system": _selected_system, "field": field, "value": next,
+	}))
+
+
+func _step_garrison(delta: float) -> void:
+	if not _can_edit_selected_system():
+		return
+	var current: float = _pending_policy_value("garrison")
+	_stream.record(StrategicCommands.make(_sim.state.tick, "set_policy", {
+		"system": _selected_system, "field": "garrison", "value": maxf(0.0, current + delta),
+	}))
+
+
+## The basis a cycle/step builds on: the selected system's LATEST still-pending
+## set_policy value for `field` if one was already recorded this tick (e.g. two
+## key presses in a row while paused, before the sim has had a chance to apply
+## the first one), or its actual current sim state otherwise. Without this, two
+## quick presses of the same key would both read the same stale current value
+## and emit the same next value twice, instead of advancing twice.
+func _pending_policy_value(field: String) -> Variant:
+	for i in range(_stream._next_index, _stream.commands.size()):
+		var cmd: Dictionary = _stream.commands[i]
+		if cmd["k"] == "set_policy" and cmd["a"]["system"] == _selected_system and cmd["a"]["field"] == field:
+			return cmd["a"]["value"]
+	return _sim.state.planets[_selected_system][field]
+
+
+func _can_edit_selected_system() -> bool:
+	return _selected_system != "" and _sim.state.system_owner.get(_selected_system, -1) == PLAYER_SIDE
+
+
 func _fleet_pos(f: Dictionary) -> Vector2:
 	var from_pos: Vector2 = Galaxy.SYSTEMS[f["system"]]["pos"]
 	if f["dest"] == null:
@@ -248,12 +324,36 @@ func _update_label() -> void:
 	_label.text = ("Week %d   %s   selected fleet: %s\n" +
 		"Materiel — yours: %d   Realm B: %d   Realm C: %d\n" +
 		"left-click a fleet to select it, left-click a system to send it there\n" +
-		"Space pause/resume · 1/2/3 speed") % [
+		"right-click a system to inspect it · Space pause/resume · 1/2/3 speed") % [
 			_sim.state.tick, speed_txt, fleet_txt,
 			int(_sim.state.materiel.get(0, 0.0)), int(_sim.state.materiel.get(1, 0.0)), int(_sim.state.materiel.get(2, 0.0)),
 		]
+	_label.text += _planet_panel_text()
 	if _campaign_over:
 		_label.text += "\n\n%s\nPress R to start a new campaign" % _campaign_result
+
+
+## Issue #17's showable outcome: a planet panel where policy changes visibly move
+## output and unrest. Read-only for a system the player doesn't own (no T/C/[/]/O
+## effect there, per _can_edit_selected_system) -- still worth inspecting, just
+## not editing.
+func _planet_panel_text() -> String:
+	if _selected_system == "" or not _sim.state.planets.has(_selected_system):
+		return ""
+	var p: Dictionary = _sim.state.planets[_selected_system]
+	var owned := _can_edit_selected_system()
+	var header := "%s (yours)" % _selected_system if owned else "%s (not yours -- read only)" % _selected_system
+	var lines := "\n\n-- Planet: %s --\n" % header
+	lines += "population %d   manpower %d/%d   loyalty %d%%   unrest %d%%\n" % [
+		int(p["population"]), int(p["manpower"]), int(Planet.MANPOWER_CAP), int(p["loyalty"]), int(p["unrest"]),
+	]
+	lines += "materiel output %.1f/wk   food output %.1f/wk   garrison %d\n" % [
+		Planet.materiel_output(p), Planet.food_output(p), int(p["garrison"]),
+	]
+	lines += "taxation: %s   conscription: %s   occupation: %s" % [p["taxation"], p["conscription"], p["occupation"]]
+	if owned:
+		lines += "\nT taxation · C conscription · [ / ] garrison · O occupation"
+	return lines
 
 
 func _draw() -> void:
@@ -285,6 +385,17 @@ func _draw() -> void:
 		if Shipyard.SHIPYARDS.has(id) and Shipyard.SHIPYARDS[id] == owner:
 			var s := SYSTEM_RADIUS * 0.6
 			draw_rect(Rect2(pos - Vector2(s, s) / 2.0, Vector2(s, s)), Color(1.0, 0.85, 0.2, 0.9 if seen else 0.25), false, 2.0)
+		# Unrest ring (issue #17): green at calm, red as unrest rises, same
+		# green-to-red convention as the fleet supply ring below -- "policy
+		# changes visibly move ... unrest" is the issue's own showable-outcome
+		# wording. Fog of war applies here too: no economic detail for a system
+		# the player can't currently see.
+		if seen and owner >= 0:
+			var unrest: float = _sim.state.planets[id]["unrest"]
+			var unrest_color := Color(0.3, 0.9, 0.4).lerp(Color(1.0, 0.35, 0.25), unrest / 100.0)
+			draw_arc(pos, SYSTEM_RADIUS + 4.0, 0.0, TAU * unrest / 100.0, 24, unrest_color, 2.5)
+		if id == _selected_system:
+			draw_arc(pos, SYSTEM_RADIUS + 8.0, 0.0, TAU, 24, Color(1, 1, 1, 0.9), 2.0)
 
 	for fid in _sim.state.fleets.keys():
 		var f: Dictionary = _sim.state.fleets[fid]
