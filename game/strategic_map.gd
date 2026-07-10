@@ -47,6 +47,11 @@ const SELECT_RADIUS := 22.0
 const GARRISON_STEP := 5.0
 const SIDE_COLOR := {
 	0: Color(0.29, 0.62, 1.0), 1: Color(1.0, 0.35, 0.35), 2: Color(0.35, 0.8, 0.4), -1: Color(0.55, 0.55, 0.58),
+	# Issue #18: a rebel-held system (Rebellion.REBEL_SIDE) needs its own entry
+	# here -- without one, _draw()'s SIDE_COLOR[owner] lookup below would crash
+	# the instant any system actually rebels. A distinct burnt orange so it
+	# reads unmistakably differently from any of the three realms.
+	Rebellion.REBEL_SIDE: Color(0.85, 0.45, 0.1),
 }
 const TICK_CAP := 800  # weeks -- guarantees a demo session concludes even in a worst-case standoff
 
@@ -334,25 +339,53 @@ func _update_label() -> void:
 
 
 ## Issue #17's showable outcome: a planet panel where policy changes visibly move
-## output and unrest. Read-only for a system the player doesn't own (no T/C/[/]/O
-## effect there, per _can_edit_selected_system) -- still worth inspecting, just
-## not editing.
+## output and unrest. Issue #18 adds the escalation state (calm/strikes/riots)
+## so a squeezed planet "visibly warns" before it flips, plus a distinct
+## rebel-held view with siege progress -- there's no policy panel for a system
+## in open rebellion, since nobody's governing it in the sense this model
+## represents (Rebellion.advance's owner==REBEL_SIDE branch skips Planet.advance
+## entirely). Read-only for a system the player doesn't own (no T/C/[/]/O
+## effect there, per _can_edit_selected_system) -- still worth inspecting.
 func _planet_panel_text() -> String:
 	if _selected_system == "" or not _sim.state.planets.has(_selected_system):
 		return ""
+	var owner: int = _sim.state.system_owner.get(_selected_system, -1)
+	if owner == Rebellion.REBEL_SIDE:
+		return _rebel_panel_text()
 	var p: Dictionary = _sim.state.planets[_selected_system]
 	var owned := _can_edit_selected_system()
 	var header := "%s (yours)" % _selected_system if owned else "%s (not yours -- read only)" % _selected_system
 	var lines := "\n\n-- Planet: %s --\n" % header
+	var status := Rebellion.escalation_state(p["unrest"])
+	var status_note: String = {
+		"calm": "calm", "strikes": "STRIKES -- deliveries at 50%",
+		"riots": "RIOTS -- deliveries stopped, garrison under attrition",
+	}[status]
+	lines += "status: %s\n" % status_note
 	lines += "population %d   manpower %d/%d   loyalty %d%%   unrest %d%%\n" % [
 		int(p["population"]), int(p["manpower"]), int(Planet.MANPOWER_CAP), int(p["loyalty"]), int(p["unrest"]),
 	]
+	var delivery := Rebellion.delivery_mult(p)
 	lines += "materiel output %.1f/wk   food output %.1f/wk   garrison %d\n" % [
-		Planet.materiel_output(p), Planet.food_output(p), int(p["garrison"]),
+		Planet.materiel_output(p) * delivery, Planet.food_output(p) * delivery, int(p["garrison"]),
 	]
 	lines += "taxation: %s   conscription: %s   occupation: %s" % [p["taxation"], p["conscription"], p["occupation"]]
+	if p["scorched"]:
+		lines += "\n(scorched -- retaken by force, still resentful)"
 	if owned:
 		lines += "\nT taxation · C conscription · [ / ] garrison · O occupation"
+	return lines
+
+
+## A rebel-held system has no policy panel -- just its hostile status and
+## whatever siege progress is (or isn't) currently under way against it.
+func _rebel_panel_text() -> String:
+	var p: Dictionary = _sim.state.planets[_selected_system]
+	var lines := "\n\n-- Planet: %s --\nstatus: IN REBELLION -- hostile territory, no supply transit\n" % _selected_system
+	if int(p["siege_side"]) >= 0 and p["siege_progress"] > 0.0:
+		lines += "siege by side %d: %d/%d ticks" % [int(p["siege_side"]), int(p["siege_progress"]), int(Rebellion.SIEGE_TICKS)]
+	else:
+		lines += "no siege under way -- a lone fleet parked here starts one"
 	return lines
 
 

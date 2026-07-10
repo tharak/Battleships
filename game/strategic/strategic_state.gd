@@ -23,7 +23,8 @@ class_name StrategicState
 ## fought battle concludes; a full squadron-by-squadron roster only exists
 ## inside a tactical battle, not on the map).
 ##
-## `system_owner`: id -> side (-1 = neutral/contested), seeded from Galaxy's
+## `system_owner`: id -> side (-1 = neutral/contested, or Rebellion.REBEL_SIDE
+## == -2 once a planet actually rebels — issue #18), seeded from Galaxy's
 ## static data and (in a later issue) mutated by battle outcomes/invasions —
 ## issue #12 itself never changes ownership, just seeds and reads it for intel.
 ##

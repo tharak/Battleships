@@ -32,6 +32,7 @@ func step(stream: StrategicCommandStream) -> Array:
 		_apply(cmd)
 	var events := _advance_fleets()
 	_advance_planets()
+	_advance_rebellion()
 	_advance_supply()
 	_advance_economy()
 	state.tick += 1
@@ -47,6 +48,16 @@ func _advance_planets() -> void:
 	ids.sort()
 	for id in ids:
 		Planet.advance(state, id)
+
+
+## Issue #18: threshold escalation (strikes/riots/rebellion) and siege/retake,
+## settled right after _advance_planets so this tick's freshly-drifted unrest
+## (and any fresh rebellion/retake) is what _advance_economy actually reads.
+func _advance_rebellion() -> void:
+	var ids := state.planets.keys()
+	ids.sort()
+	for id in ids:
+		Rebellion.advance(state, id)
 
 
 func _advance_supply() -> void:
@@ -159,7 +170,16 @@ func _advance_fleets() -> Array:
 ## A multi-hop path's intermediate stops fire "arrived" too, so a fleet
 ## threading through several undefended systems on its way somewhere else
 ## auto-annexes all of them along the way — intentional, not an oversight.
+##
+## Issue #18: a REBEL_SIDE-owned system is deliberately EXCLUDED from this
+## peaceful walk-in — without this, any arriving fleet (a final destination OR
+## an intermediate hop) would instantly annex it for free, bypassing the whole
+## siege mechanic (and could even flicker straight back to REBEL_SIDE the same
+## tick once _advance_rebellion runs and still sees unrest >= 90). Retaking a
+## rebel system can ONLY happen through Rebellion._advance_siege.
 func _try_capture(f: Dictionary, system_id: String) -> void:
+	if state.system_owner.get(system_id, -1) == Rebellion.REBEL_SIDE:
+		return
 	var side: int = f["side"]
 	for other_id in state.fleets.keys():
 		var other: Dictionary = state.fleets[other_id]

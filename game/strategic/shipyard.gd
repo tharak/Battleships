@@ -33,13 +33,20 @@ const SHIPYARDS := {"A1": 0, "B1": 1, "C1": 2}  # system id -> the side whose re
 ## exactly Planet.INDUSTRY_BASE (== the old flat constant's value), so a fresh
 ## campaign's income is unchanged from before this issue existed — only an
 ## actual policy change (or population drift) moves it.
+##
+## Issue #18: Rebellion.delivery_mult scales this down further at strikes (50%)
+## or stops it entirely at riots ("50% of revenue/materiel/food" / "deliveries
+## stop", GDD §4.3) — a REBEL_SIDE-owned system already contributes zero to
+## anyone for free via the `side < 0` skip below, so this only matters for a
+## planet still owned by a regular side but underperforming.
 static func accrue(state: StrategicState) -> void:
 	var totals := {}
 	for id in state.system_owner.keys():
 		var side: int = state.system_owner[id]
 		if side < 0:
 			continue
-		totals[side] = totals.get(side, 0.0) + Planet.materiel_output(state.planets[id])
+		var planet: Dictionary = state.planets[id]
+		totals[side] = totals.get(side, 0.0) + Planet.materiel_output(planet) * Rebellion.delivery_mult(planet)
 	for side in totals.keys():
 		state.materiel[side] = state.materiel.get(side, 0.0) + totals[side]
 

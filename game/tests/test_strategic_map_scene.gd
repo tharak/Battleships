@@ -21,6 +21,8 @@ func _init() -> void:
 	_test_policy_keys_are_ignored_on_a_system_the_player_does_not_own()
 	_test_policy_cycle_and_garrison_step_emit_real_commands()
 	_test_rapid_policy_cycles_before_a_tick_still_advance_each_time()
+	_test_draw_does_not_crash_on_a_rebel_owned_system()
+	_test_planet_panel_shows_escalation_state_and_siege_progress()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -165,4 +167,42 @@ func _test_rapid_policy_cycles_before_a_tick_still_advance_each_time() -> void:
 	map._sim.step(map._stream)
 	_check(map._sim.state.planets["A1"]["taxation"] == "punitive",
 		"rapid cycle: two presses before any tick still land two levels up, not one")
+	map.free()
+
+
+## Issue #18: SIDE_COLOR must have an entry for Rebellion.REBEL_SIDE, or
+## _draw()'s SIDE_COLOR[owner] lookup would crash the instant any system
+## rebels (checked directly rather than by calling _draw() itself, which
+## Godot's CanvasItem only permits inside a real NOTIFICATION_DRAW pass --
+## calling it manually in a headless test logs "Drawing is only allowed..."
+## engine errors for every draw call even when nothing is actually wrong).
+func _test_draw_does_not_crash_on_a_rebel_owned_system() -> void:
+	_check(map_side_color_has_key(Rebellion.REBEL_SIDE),
+		"SIDE_COLOR: has an entry for REBEL_SIDE, so _draw()'s lookup won't crash once a system rebels")
+
+
+func map_side_color_has_key(key: int) -> bool:
+	var scene: PackedScene = load("res://strategic_map.tscn")
+	var map := scene.instantiate()
+	var has_key: bool = (map.SIDE_COLOR as Dictionary).has(key)
+	map.free()
+	return has_key
+
+
+func _test_planet_panel_shows_escalation_state_and_siege_progress() -> void:
+	var map := _fresh_map()
+	map._sim.state.planets["A1"]["unrest"] = 80.0  # riots
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A1"]["pos"])
+	var text: String = map._planet_panel_text()
+	_check(text.contains("RIOTS"), "planet panel: shows the escalation state, not just a raw unrest number")
+
+	map._sim.state.system_owner["A2"] = Rebellion.REBEL_SIDE
+	map._sim.state.planets["A2"]["siege_progress"] = 7.0
+	map._sim.state.planets["A2"]["siege_side"] = 0
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A1"]["pos"])  # deselect A1 first
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A2"]["pos"])
+	var rebel_text: String = map._planet_panel_text()
+	_check(rebel_text.contains("REBELLION"), "planet panel: a rebel-held system reads as such")
+	_check(rebel_text.contains("7") and rebel_text.contains(str(int(Rebellion.SIEGE_TICKS))),
+		"planet panel: shows the current siege progress against its target")
 	map.free()

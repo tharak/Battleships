@@ -77,6 +77,12 @@ static func default_state() -> Dictionary:
 		"manpower": 50.0, "loyalty": HOME_LOYALTY_TARGET, "unrest": 0.0,
 		"taxation": "moderate", "conscription": "moderate", "garrison": 0.0,
 		"occupation": "administer",
+		# Issue #18 (Rebellion.gd): siege_progress/siege_side track an in-progress
+		# retake of a rebel-owned planet; scorched marks a planet that's BEEN
+		# retaken this way. Display-only for v1 -- not read by this file's own
+		# advance()/unrest_target formula (a fast-follow, not silently dropped;
+		# same honest scope boundary as food_output being display-only below).
+		"siege_progress": 0.0, "siege_side": -1, "scorched": false,
 	}
 
 

@@ -70,6 +70,20 @@ func act(state: StrategicState, stream: StrategicCommandStream) -> void:
 			_order_to(stream, state, fleet_id, f, _home_shipyard)
 		return
 
+	# Issue #18: a fleet sitting still on a system it's besieging must hold, not
+	# wander off. _nearest_unowned below excludes the fleet's OWN system from
+	# its search, but that exclusion was written for ordinary peaceful capture,
+	# where ownership already changed by the time of this decision -- during a
+	# siege it hasn't (retaking only completes after Rebellion.SIEGE_TICKS), so
+	# without this check the AI would abandon a rebel system it just reached on
+	# essentially every decision cycle (every DECISION_PERIOD_TICKS, well
+	# inside SIEGE_TICKS) and never complete a single siege. Takes priority
+	# over Attack/Expand -- a siege is something you commit to, not interrupted
+	# by a better offer next door.
+	if f["dest"] == null and (f["path"] as Array).is_empty() \
+			and state.system_owner.get(f["system"], -1) == Rebellion.REBEL_SIDE:
+		return
+
 	var target_fleet := _winnable_target(state, _side, f)
 	if target_fleet != "":
 		_order_to(stream, state, fleet_id, f, state.fleets[target_fleet]["system"])
