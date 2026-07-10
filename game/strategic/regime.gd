@@ -87,6 +87,17 @@ static func _target_bloc_count(w: int) -> int:
 	return int(round(float(w) * float(w - 3) / 9.0))
 
 
+## Issue #29: a pretender crisis blocks new regime actions the same way an
+## active instability window already does -- you can't calmly reshuffle
+## your regime while someone is actively contesting your legitimacy. A
+## shared helper (not four independent inline checks) so the two windows
+## can never drift out of sync the way Removal's own threshold_bump almost
+## did (see removal.gd's current_threshold_bump docstring for that exact
+## lesson, applied here too).
+static func _blocked_by_crisis(pol: Dictionary) -> bool:
+	return pol.get("instability_ticks_left", 0.0) > 0.0 or pol.get("pretender_ticks_left", 0.0) > 0.0
+
+
 ## Purge (GDD §4.5, paper §7): removes the realm's least-satisfied seat,
 ## loots its assets, and panics everyone left. Tie-break for "least
 ## satisfied": first match in dictionary insertion order (stated explicitly,
@@ -96,7 +107,7 @@ static func _target_bloc_count(w: int) -> int:
 ## implicit).
 static func purge(state: StrategicState, side: int) -> bool:
 	var pol: Dictionary = state.politics[side]
-	if pol["seats"].size() <= PURGE_MIN_W or pol.get("instability_ticks_left", 0.0) > 0.0:
+	if pol["seats"].size() <= PURGE_MIN_W or _blocked_by_crisis(pol):
 		return false
 	var victim_id := ""
 	var victim_satisfaction := INF
@@ -132,7 +143,7 @@ static func purge(state: StrategicState, side: int) -> bool:
 static func broaden(state: StrategicState, side: int) -> bool:
 	var pol: Dictionary = state.politics[side]
 	var w: int = pol["seats"].size()
-	if w >= BROADEN_MAX_W or pol.get("instability_ticks_left", 0.0) > 0.0:
+	if w >= BROADEN_MAX_W or _blocked_by_crisis(pol):
 		return false
 	var current_blocs := 0
 	for seat in pol["seats"].values():
@@ -158,7 +169,7 @@ static func broaden(state: StrategicState, side: int) -> bool:
 ## established for planet unrest.
 static func expand_franchise(state: StrategicState, side: int) -> bool:
 	var pol: Dictionary = state.politics[side]
-	if pol.get("instability_ticks_left", 0.0) > 0.0:
+	if _blocked_by_crisis(pol):
 		return false
 	pol["s_percent"] = clampf(pol["s_percent"] + FRANCHISE_S_PERCENT_SHIFT, 1.0, 100.0)
 	_apply_unrest_shock(state, side, -FRANCHISE_UNREST_RELIEF)
@@ -168,7 +179,7 @@ static func expand_franchise(state: StrategicState, side: int) -> bool:
 
 static func restrict_franchise(state: StrategicState, side: int) -> bool:
 	var pol: Dictionary = state.politics[side]
-	if pol.get("instability_ticks_left", 0.0) > 0.0:
+	if _blocked_by_crisis(pol):
 		return false
 	pol["s_percent"] = clampf(pol["s_percent"] - FRANCHISE_S_PERCENT_SHIFT, 1.0, 100.0)
 	_apply_unrest_shock(state, side, FRANCHISE_UNREST_SHOCK)

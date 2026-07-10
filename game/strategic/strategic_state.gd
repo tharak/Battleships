@@ -46,6 +46,12 @@ class_name StrategicState
 ## `roster`: side (int) -> Dictionary of character_id -> Dictionary (issue
 ## #25, GDD §6 — see strategic/roster.gd for the full field list/formulas).
 ## Seeded for sides 0/1/2 the same way, one call alongside `politics`.
+##
+## `era_events`: campaign-WIDE (not per-side, unlike politics/roster above)
+## one-shot bookkeeping for issue #29's era events -- see strategic/
+## era_events.gd for the full field list. Flat top-level shape, same
+## precedent as system_owner/materiel, since fired_fortress_auction/
+## first_contact_resolved genuinely don't belong to any one realm.
 
 var tick: int = 0  # weeks
 var fleets: Dictionary = {}  # id -> Dictionary
@@ -54,6 +60,7 @@ var materiel: Dictionary = {0: 0.0, 1: 0.0, 2: 0.0}  # side -> stockpile (issue 
 var planets: Dictionary = {}  # id (String) -> Dictionary
 var politics: Dictionary = {}  # side (int) -> Dictionary
 var roster: Dictionary = {}  # side (int) -> Dictionary
+var era_events: Dictionary = {}
 
 
 func _init() -> void:
@@ -63,3 +70,4 @@ func _init() -> void:
 	for side in [0, 1, 2]:
 		politics[side] = Politics.default_state()
 		roster[side] = Roster.default_state()
+	era_events = EraEvents.default_state()

@@ -79,6 +79,17 @@ static func default_state() -> Dictionary:
 		# other seat. Plain literals, same "no cross-file constant reference in
 		# default_state()" precedent as election_countdown above.
 		"instability_ticks_left": 0.0, "coup_insurance_debt": 0.0, "next_seat_id": 0,
+			# Issue #29 (era_events.gd): pretender_ticks_left is a shared
+			# threshold-easing window opened by a pretender crisis (same shape
+			# as instability_ticks_left, consumed via Removal.
+			# current_threshold_bump, not re-derived independently);
+			# fired_pretender/fired_debt_crunch mark this realm's own one-shot
+			# era events as already spent (a dramatic story beat, not a
+			# repeating nag); military_heavy_ticks is the debt-crunch event's
+			# own gradual, symmetric accumulate/unwind counter (same "decay,
+			# don't hard-reset" precedent as coup_insurance_debt).
+			"pretender_ticks_left": 0.0, "fired_pretender": false,
+			"fired_debt_crunch": false, "military_heavy_ticks": 0.0,
 	}
 
 

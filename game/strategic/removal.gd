@@ -104,6 +104,14 @@ const COUP_INSURANCE_DECAY := 0.05
 const INSTABILITY_WINDOW_TICKS := 8.0
 const INSTABILITY_THRESHOLD_BUMP := 10.0
 
+## Issue #29 (era_events.gd's pretender event): a SECOND, independent
+## threshold-bump source, same shape as INSTABILITY_THRESHOLD_BUMP above --
+## while a pretender crisis is active, a removal is EASIER to trigger, same
+## "an imperial pretender surfaces with a legitimist claim" framing GDD's
+## own Act 2 pacing skeleton uses for this event, pulled forward into the
+## early campaign window per issue #29's own showable outcome.
+const PRETENDER_THRESHOLD_BUMP := 15.0
+
 
 ## GDD's own continuous-score philosophy (same as Planet's unrest): a
 ## weighted AVERAGE of seat satisfaction, not a binary per-seat "satisfied"
@@ -154,6 +162,26 @@ static func effective_support(state: StrategicState, side: int) -> float:
 ## decision can never disagree -- see strategic_map.gd's _coalition_text,
 ## which MUST pass the same bump advance() computes below or the player-
 ## facing status line can silently disagree with what the sim just decided.
+## Issue #29 design review: the ONLY place this sum may ever be computed.
+## Before this existed, `strategic_map.gd`'s `_coalition_text()` and
+## `realm_politics_ai.gd`'s `act()` each independently re-derived
+## INSTABILITY_THRESHOLD_BUMP's own contribution by hand -- the exact bug
+## class #24's own design review already caught once (a caller silently
+## disagreeing with advance()'s actual firing decision). Adding a SECOND
+## bump source (pretender_ticks_left) without a single shared helper would
+## have reintroduced that same bug the moment a pretender crisis is active
+## without an instability window also being active (a realistic,
+## independent combination) -- every caller that needs "how much easier is
+## a removal right now" must call THIS function, never re-derive it.
+static func current_threshold_bump(pol: Dictionary) -> float:
+	var bump := 0.0
+	if pol.get("instability_ticks_left", 0.0) > 0.0:
+		bump += INSTABILITY_THRESHOLD_BUMP
+	if pol.get("pretender_ticks_left", 0.0) > 0.0:
+		bump += PRETENDER_THRESHOLD_BUMP
+	return bump
+
+
 static func escalation_state(support: float, threshold_bump: float = 0.0) -> String:
 	if support <= REMOVAL_THRESHOLD + threshold_bump:
 		return "removal"
@@ -172,20 +200,22 @@ static func advance(state: StrategicState, side: int) -> void:
 	var pol: Dictionary = state.politics[side]
 	var w: int = pol["seats"].size()
 	var support := effective_support(state, side)
-	var instability_active: bool = pol.get("instability_ticks_left", 0.0) > 0.0
-	var threshold_bump := INSTABILITY_THRESHOLD_BUMP if instability_active else 0.0
+	var threshold_bump := current_threshold_bump(pol)
 	var st := escalation_state(support, threshold_bump)
 
 	if st == "crisis" or st == "removal":
 		for seat in pol["seats"].values():
 			seat["satisfaction"] = maxf(0.0, seat["satisfaction"] - CRISIS_SATISFACTION_PENALTY)
 
-	# Issue #24: decay both regime.gd-owned counters once per tick, in this
-	# same fixed-side-list loop (strategic_sim.gd's _advance_removal already
-	# iterates state.politics.keys(), the #16/#22/#23-taught-safe pattern --
-	# no new iteration risk from adding these here).
-	if instability_active:
+	# Issue #24/#29: decay every regime.gd/era_events.gd-owned counter once
+	# per tick, in this same fixed-side-list loop (strategic_sim.gd's
+	# _advance_removal already iterates state.politics.keys(), the
+	# #16/#22/#23-taught-safe pattern -- no new iteration risk from adding
+	# these here).
+	if pol.get("instability_ticks_left", 0.0) > 0.0:
 		pol["instability_ticks_left"] = maxf(0.0, pol["instability_ticks_left"] - 1.0)
+	if pol.get("pretender_ticks_left", 0.0) > 0.0:
+		pol["pretender_ticks_left"] = maxf(0.0, pol["pretender_ticks_left"] - 1.0)
 	if pol.get("coup_insurance_debt", 0.0) > 0.0:
 		pol["coup_insurance_debt"] = maxf(0.0, pol["coup_insurance_debt"] - COUP_INSURANCE_DECAY)
 

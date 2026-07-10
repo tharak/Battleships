@@ -23,6 +23,10 @@ func _init() -> void:
 	_test_apply_result_removes_wiped_fleet_and_updates_survivor()
 	_test_apply_result_mutual_wipeout_leaves_ownership_untouched()
 	_test_apply_result_retreats_a_survivor_that_didnt_capture()
+	_test_first_contact_grants_the_hero_admiral_bonus_to_a_clear_winner()
+	_test_first_contact_resolved_flag_sets_even_on_a_mutual_wipeout()
+	_test_first_contact_resolved_flag_sets_even_on_a_mutual_survival()
+	_test_first_contact_bonus_never_grants_to_a_later_battle()
 	_test_auto_resolve_mismatch_favors_stronger_side()
 	_test_auto_resolve_even_fight_costs_both_sides()
 	_test_auto_resolve_starved_fleet_fares_worse_than_full_supply()
@@ -139,6 +143,61 @@ func _test_apply_result_retreats_a_survivor_that_didnt_capture() -> void:
 		"retreat: a survivor stranded on ground it doesn't hold starts moving toward its own realm")
 	_check(state.fleets["Red"]["dest"] == null,
 		"retreat: Red already owns B1, so it doesn't need to go anywhere")
+
+
+## --- issue #29's Act 1 opener / hero-admiral ------------------------------------------------
+
+func _test_first_contact_grants_the_hero_admiral_bonus_to_a_clear_winner() -> void:
+	var state := StrategicState.new()
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "strength": 90, "commander_id": "fleet_commander"}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "strength": 90, "commander_id": "fleet_commander"}
+	var ambition_before: float = state.roster[0]["fleet_commander"]["ambition"]
+	BattleBridge.apply_result(state, "Blue", "Red", 60, 0, "B1")
+	_check(state.era_events["first_contact_resolved"], "first contact: the flag is set on the campaign's first-ever resolved contact")
+	_check(is_equal_approx(state.roster[0]["fleet_commander"]["ambition"],
+		ambition_before + Roster.AMBITION_PER_VICTORY + EraEvents.FIRST_CONTACT_HERO_AMBITION_BONUS),
+		"first contact: the winner's commander gets the normal victory ambition PLUS the hero-admiral bonus")
+
+
+func _test_first_contact_resolved_flag_sets_even_on_a_mutual_wipeout() -> void:
+	var state := StrategicState.new()
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "strength": 90, "commander_id": "fleet_commander"}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "strength": 90, "commander_id": "fleet_commander"}
+	BattleBridge.apply_result(state, "Blue", "Red", 0, 0, "B1")
+	_check(state.era_events["first_contact_resolved"],
+		"first contact: a mutual wipeout on the campaign's actual first contact still resolves it -- a design review's own caught gap")
+
+
+func _test_first_contact_resolved_flag_sets_even_on_a_mutual_survival() -> void:
+	var state := StrategicState.new()
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "dest": null, "progress": 0.0, "path": [], "strength": 90, "commander_id": "fleet_commander"}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "dest": null, "progress": 0.0, "path": [], "strength": 90, "commander_id": "fleet_commander"}
+	BattleBridge.apply_result(state, "Blue", "Red", 30, 30, "B1")
+	_check(state.era_events["first_contact_resolved"],
+		"first contact: a mutual survival/draw on the campaign's actual first contact still resolves it")
+
+
+## The direct regression for the design review's own flagged risk: without
+## the unconditional flag-set, a mutual-wipeout/draw first contact would
+## leave a LATER, unrelated battle's winner incorrectly receiving the
+## "first contact" bonus instead. Uses a DIFFERENT commander for the second
+## battle -- the first battle's mutual wipeout correctly permadeaths
+## "fleet_commander" via #25's own existing rule (wiped applies regardless
+## of who "won"), so re-using that same now-dead character to check a LATER
+## battle's ambition grant would be testing nothing at all.
+func _test_first_contact_bonus_never_grants_to_a_later_battle() -> void:
+	var state := StrategicState.new()
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "strength": 90, "commander_id": "fleet_commander"}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "strength": 90, "commander_id": "fleet_commander"}
+	BattleBridge.apply_result(state, "Blue", "Red", 0, 0, "B1")  # the campaign's real first contact: a mutual wipeout
+	_check(not state.roster[0]["fleet_commander"]["alive"], "test setup: that commander correctly died in the mutual wipeout (#25's own permadeath rule)")
+
+	state.fleets["Blue2"] = {"side": 0, "system": "A1", "strength": 90, "commander_id": "genius_officer"}
+	state.fleets["Red2"] = {"side": 1, "system": "A1", "strength": 90, "commander_id": "genius_officer"}
+	var ambition_before: float = state.roster[0]["genius_officer"]["ambition"]
+	BattleBridge.apply_result(state, "Blue2", "Red2", 60, 0, "A1")
+	_check(is_equal_approx(state.roster[0]["genius_officer"]["ambition"], ambition_before + Roster.AMBITION_PER_VICTORY),
+		"first contact: a LATER battle's winner gets only the normal victory ambition, no hero-admiral bonus")
 
 
 ## --- pure AutoResolve functions ----------------------------------------------------------

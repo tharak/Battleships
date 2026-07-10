@@ -118,7 +118,7 @@ func act(state: StrategicState, stream: StrategicCommandStream) -> void:
 	_next_decision_tick = state.tick + POLITICAL_DECISION_PERIOD_TICKS
 
 	var pol: Dictionary = state.politics[_side]
-	var threshold_bump: float = Removal.INSTABILITY_THRESHOLD_BUMP if pol.get("instability_ticks_left", 0.0) > 0.0 else 0.0
+	var threshold_bump := Removal.current_threshold_bump(pol)
 	var status := Removal.escalation_state(Removal.effective_support(state, _side), threshold_bump)
 	var stable: bool = status == "stable"
 

@@ -476,6 +476,7 @@ func _update_label() -> void:
 			_sim.state.tick, speed_txt, fleet_txt,
 			int(_sim.state.materiel.get(0, 0.0)), int(_sim.state.materiel.get(1, 0.0)), int(_sim.state.materiel.get(2, 0.0)),
 		]
+	_label.text += _era_event_text()
 	_label.text += _home_front_warning_text()
 	_label.text += _coalition_text()
 	_label.text += _roster_text()
@@ -495,14 +496,16 @@ func _coalition_text() -> String:
 	# escalation-state line -- "visible, escalating... no gotchas" for the
 	# removal-crisis pipeline too, not just planet unrest.
 	#
-	# Issue #24: MUST pass the same instability-window threshold_bump
-	# Removal.advance computes internally, or this panel can read "stable" the
-	# same tick the sim is actually treating the realm as "crisis" -- a design
-	# review flagged this exact gap. Kept in sync by hand (both call sites
-	# compute it the same way from pol["instability_ticks_left"]) since
-	# advance()'s own bump is a local var, not stored state to read back.
+	# Issue #24/#29: MUST pass the same threshold_bump Removal.advance
+	# computes internally, or this panel can read "stable" the same tick the
+	# sim is actually treating the realm as "crisis" -- a design review
+	# flagged this exact gap. Removal.current_threshold_bump is the single
+	# shared helper every caller uses (not re-derived independently here) --
+	# #29's own design review caught that a second bump source
+	# (pretender_ticks_left) added to ONLY Removal.advance's own copy would
+	# have silently reintroduced this exact bug.
 	var support := Removal.effective_support(_sim.state, PLAYER_SIDE)
-	var threshold_bump: float = Removal.INSTABILITY_THRESHOLD_BUMP if pol.get("instability_ticks_left", 0.0) > 0.0 else 0.0
+	var threshold_bump := Removal.current_threshold_bump(pol)
 	var status := Removal.escalation_state(support, threshold_bump)
 	# "removal" is deliberately not a normal display case -- by the time it
 	# fires, _check_campaign_over() has already ended the campaign this same
@@ -604,6 +607,17 @@ func _pending_commander(fleet_id: String) -> String:
 		if cmd["k"] == "assign_command" and cmd["a"]["fleet_id"] == fleet_id:
 			return cmd["a"]["character_id"]
 	return _sim.state.fleets[fleet_id].get("commander_id", Roster.DEFAULT_COMMANDER_ID)
+
+
+## Issue #29: a single current-event string, unconditionally surfaced --
+## deliberately minimal (one line, not a scrolling history/log). The full
+## ticker with two-tick advance warnings is issue #30's own scope, not built
+## here.
+func _era_event_text() -> String:
+	var announcement: String = _sim.state.era_events.get("last_announcement", "")
+	if announcement == "":
+		return ""
+	return "\n\n⚡ %s" % announcement
 
 
 ## Issue #21's showable outcome: "a build where the loudest threat is behind

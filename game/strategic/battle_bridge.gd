@@ -131,8 +131,22 @@ static func _crew_quality(state: StrategicState, side: int) -> Dictionary:
 ## is gone by the time that would otherwise run. Resolved to a String up
 ## front, never a fleet_id, so Roster.apply_battle_result never touches
 ## state.fleets at all.
+##
+## Issue #29's Act 1 opener: `first_contact_resolved` is set true
+## UNCONDITIONALLY the first time this function is EVER called in a
+## campaign, checked BEFORE any winner-branching below -- a design review
+## caught that gating it on "did this contact have a clear winner" would
+## leave a mutual wipeout OR a mutual survival on the campaign's actual
+## first contact un-flagged, incorrectly letting some LATER, unrelated
+## battle's winner receive the "mints your first dangerous hero-admiral"
+## bonus instead. The bonus itself is only ever granted in the sub-case
+## where there IS a clear winner (the same condition already computed for
+## system capture below).
 static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String,
 		a_strength_left: int, b_strength_left: int, system_id: String) -> void:
+	var is_first_contact: bool = not state.era_events.get("first_contact_resolved", false)
+	state.era_events["first_contact_resolved"] = true
+
 	var a_side: int = state.fleets[fleet_a]["side"]
 	var b_side: int = state.fleets[fleet_b]["side"]
 	var a_old: int = int(state.fleets[fleet_a]["strength"])
@@ -147,16 +161,22 @@ static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String
 		state.fleets.erase(fleet_b)
 	else:
 		state.fleets[fleet_b]["strength"] = b_strength_left
-	if a_strength_left > 0 and b_strength_left <= 0:
+	var a_won := a_strength_left > 0 and b_strength_left <= 0
+	var b_won := b_strength_left > 0 and a_strength_left <= 0
+	if a_won:
 		state.system_owner[system_id] = a_side
-	elif b_strength_left > 0 and a_strength_left <= 0:
+	elif b_won:
 		state.system_owner[system_id] = b_side
 
 	Manpower.apply_casualties(state, a_side, maxi(0, a_old - maxi(a_strength_left, 0)))
 	Manpower.apply_casualties(state, b_side, maxi(0, b_old - maxi(b_strength_left, 0)))
 
-	Roster.apply_battle_result(state, a_side, a_commander, a_strength_left > 0 and b_strength_left <= 0, a_strength_left <= 0)
-	Roster.apply_battle_result(state, b_side, b_commander, b_strength_left > 0 and a_strength_left <= 0, b_strength_left <= 0)
+	var a_bonus: float = EraEvents.FIRST_CONTACT_HERO_AMBITION_BONUS if (is_first_contact and a_won) else 0.0
+	var b_bonus: float = EraEvents.FIRST_CONTACT_HERO_AMBITION_BONUS if (is_first_contact and b_won) else 0.0
+	if a_bonus > 0.0 or b_bonus > 0.0:
+		state.era_events["last_announcement"] = "First Contact: a set-piece battle establishes early reputation!"
+	Roster.apply_battle_result(state, a_side, a_commander, a_won, a_strength_left <= 0, a_bonus)
+	Roster.apply_battle_result(state, b_side, b_commander, b_won, b_strength_left <= 0, b_bonus)
 
 	if a_strength_left > 0:
 		_retreat_if_not_held(state, fleet_a, system_id)

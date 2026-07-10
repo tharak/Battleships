@@ -156,13 +156,20 @@ static func tactics_uptime_mult(tactics: float) -> float:
 ## DEFAULT_COMMANDER_ID or any id that resolves to nothing meaningful --
 ## `.has()`/`alive` guards below make every branch a no-op rather than a
 ## crash for a fleet that was never actually assigned a real commander.
-static func apply_battle_result(state: StrategicState, side: int, commander_id: String, won: bool, wiped: bool) -> void:
+##
+## `bonus_ambition` (issue #29): an optional EXTRA one-time ambition jump on
+## top of the normal AMBITION_PER_VICTORY, only ever applied alongside a win
+## -- era_events.gd's Act 1 opener uses this for the campaign's first-ever
+## contact ("mints your first dangerous hero-admiral"), reusing this
+## function's own existence/alive guards rather than a separate ad hoc poke
+## in battle_bridge.gd duplicating them.
+static func apply_battle_result(state: StrategicState, side: int, commander_id: String, won: bool, wiped: bool, bonus_ambition: float = 0.0) -> void:
 	var roster: Dictionary = state.roster.get(side, {})
 	if not roster.has(commander_id) or not roster[commander_id]["alive"]:
 		return
 	var character: Dictionary = roster[commander_id]
 	if won:
-		character["ambition"] += AMBITION_PER_VICTORY
+		character["ambition"] += AMBITION_PER_VICTORY + bonus_ambition
 	if wiped:
 		character["alive"] = false
 		character["seat_id"] = null

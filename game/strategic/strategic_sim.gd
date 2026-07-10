@@ -31,10 +31,12 @@ func step(stream: StrategicCommandStream) -> Array:
 	apply_due_commands(stream)
 	var events := _advance_fleets()
 	_advance_planets()
+	_advance_era_events_pre_rebellion()
 	_advance_rebellion()
 	_advance_supply()
 	_advance_economy()
 	_advance_removal()
+	_advance_era_events()
 	state.tick += 1
 	return events
 
@@ -65,6 +67,18 @@ func _advance_planets() -> void:
 	ids.sort()
 	for id in ids:
 		Planet.advance(state, id)
+
+
+## Issue #29: fortress-auction ONLY, settled right after _advance_planets
+## and BEFORE _advance_rebellion in this SAME tick -- CRITICAL ordering, not
+## a stylistic choice. A design review traced Planet.advance's own unrest
+## drift and confirmed a forced unrest=90.0 would erode to ~82.8 in a single
+## drift step before Rebellion.advance ever saw it, if this ran even one
+## step later in the pipeline (e.g. bundled with the rest of era_events.gd
+## at the end) -- silently defeating the whole event. See era_events.gd's
+## own docstring for the full trace.
+func _advance_era_events_pre_rebellion() -> void:
+	EraEvents.advance_pre_rebellion(state)
 
 
 ## Issue #18: threshold escalation (strikes/riots/rebellion) and siege/retake,
@@ -113,6 +127,15 @@ func _advance_economy() -> void:
 func _advance_removal() -> void:
 	for side in state.politics.keys():
 		Removal.advance(state, side)
+
+
+## Issue #29: pretender + debt crunch, appended LAST -- no same-tick
+## ordering dependency (nothing else drifts pretender_ticks_left/materiel
+## toward a competing target the way Planet.advance drifts unrest), same
+## "append a new step to the end of the existing chain" precedent #23
+## already established for _advance_removal itself.
+func _advance_era_events() -> void:
+	EraEvents.advance(state)
 
 
 func run_stream(stream: StrategicCommandStream, ticks: int) -> void:
