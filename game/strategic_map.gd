@@ -68,6 +68,7 @@ const TICK_CAP := 800  # weeks -- guarantees a demo session concludes even in a 
 var _sim: StrategicSim
 var _stream: StrategicCommandStream
 var _ai_realms: Array[StrategicAI] = []
+var _political_ai_realms: Array[RealmPoliticsAI] = []
 var _label: Label
 var _accum := 0.0
 var _speed := 1.0
@@ -89,6 +90,11 @@ func _ready() -> void:
 	# time this scene loads, see strategic_ai.gd's own docstring for why that's
 	# a deliberate, harmless choice.
 	_ai_realms = [StrategicAI.new(1, "B1"), StrategicAI.new(2, "C1")]
+	# Issue #26: a SEPARATE per-realm decision-maker (politics, not fleet
+	# movement) with its own cadence -- confirmed by design review that no
+	# same-tick coordination with _ai_realms is needed (see realm_politics_ai
+	# .gd's own docstring for why).
+	_political_ai_realms = [RealmPoliticsAI.new(1), RealmPoliticsAI.new(2)]
 
 	_stream = StrategicCommandStream.new()
 
@@ -131,6 +137,8 @@ func _process(delta: float) -> void:
 			_accum -= tick_len
 			for ai in _ai_realms:
 				ai.act(_sim.state, _stream)
+			for political_ai in _political_ai_realms:
+				political_ai.act(_sim.state, _stream)
 			_sim.step(_stream)
 			# Issue #23: checked immediately, before contact detection/
 			# _launch_battle -- a design review caught that a same-tick

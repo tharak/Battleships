@@ -108,6 +108,18 @@ static func _my_fleet(state: StrategicState, side: int) -> String:
 ## The nearest opposing fleet this realm could beat with a real margin (not a
 ## coin-flip win) — ties broken by distance, same "closest legal target"
 ## precedent as the tactical AI's Combat.pick_target.
+##
+## Issue #26's own logged limitation: `effective_power` here is called with
+## only (strength, supply), never a `tactics` value — it always evaluates at
+## Roster.BASELINE_TACTICS regardless of who this fleet's REAL assigned
+## commander is. Pre-#26 this was provably inert (AI realms never reassigned
+## commanders, so BASELINE_TACTICS was always accurate anyway); post-#26,
+## strategic/realm_politics_ai.gd actually reassigns AI-realm commanders
+## based on politics, so this judgment can now be genuinely blind to a
+## much-weaker-or-stronger real commander. Deliberately deferred, not fixed
+## here — threading live commander tactics into this decision is its own
+## scope, not part of #26's own showable outcome ("survive politics, wage
+## sensible wars").
 static func _winnable_target(state: StrategicState, side: int, f: Dictionary) -> String:
 	var my_power := AutoResolve.effective_power(int(f["strength"]), float(f["supply"]))
 	var best_id := ""
