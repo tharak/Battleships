@@ -46,12 +46,17 @@ func _check(cond: bool, label: String) -> void:
 func _test_accrue_scales_with_owned_systems() -> void:
 	var state := StrategicState.new()
 	var before: float = state.materiel[0]
-	Shipyard.accrue(state)
+	var revenue := Shipyard.accrue(state)
 	# Side 0 (player) owns exactly the 4 A-sector systems by default. Issue #17:
 	# income is now planet-industry-driven, but a fresh planet at default policy
 	# produces exactly Planet.INDUSTRY_BASE (the old flat constant's value).
-	_check(state.materiel[0] == before + 4 * Planet.INDUSTRY_BASE,
-		"accrue: income scales with how many systems a side currently owns")
+	_check(is_equal_approx(revenue[0], 4 * Planet.INDUSTRY_BASE),
+		"accrue: the RAW revenue returned scales with how many systems a side currently owns")
+	# Issue #22: only the military budget share actually lands in state.materiel --
+	# the rest funds Politics.advance's seat/planet effects instead.
+	var military_frac: float = state.politics[0]["budget_military"]
+	_check(is_equal_approx(state.materiel[0], before + 4 * Planet.INDUSTRY_BASE * military_frac),
+		"accrue: state.materiel only gets the military budget share of the raw revenue")
 
 
 ## Issue #16: a fixed 2-side loop here would have silently starved the 3rd
@@ -61,7 +66,7 @@ func _test_accrue_scales_with_owned_systems() -> void:
 func _test_accrue_credits_all_three_realms() -> void:
 	var state := StrategicState.new()
 	Shipyard.accrue(state)
-	var per_sector := 4 * Planet.INDUSTRY_BASE
+	var per_sector: float = 4 * Planet.INDUSTRY_BASE * state.politics[0]["budget_military"]
 	_check(state.materiel[0] == per_sector, "accrue: side 0 (player, Sector A) gets its income")
 	_check(state.materiel[1] == per_sector, "accrue: side 1 (AI realm, Sector B) also gets its income")
 	_check(state.materiel[2] == per_sector, "accrue: side 2 (AI realm, Sector C) also gets its income")

@@ -27,6 +27,9 @@ func _init() -> void:
 	_test_home_front_warning_ignores_calm_and_other_realms_systems()
 	_test_policy_change_takes_effect_immediately_while_paused()
 	_test_fleet_order_takes_effect_immediately_while_paused()
+	_test_shift_budget_moves_the_targeted_share_up_and_others_down()
+	_test_rapid_budget_shifts_before_a_tick_still_compound()
+	_test_coalition_panel_shows_seats_and_budget_split()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -277,3 +280,36 @@ func _test_fleet_order_takes_effect_immediately_while_paused() -> void:
 		"paused: a fleet move order takes effect on the very next frame, not after unpausing")
 	_check(map._sim.state.tick == tick_before, "paused: simulated time genuinely did not advance")
 	map.free()
+
+
+func _test_shift_budget_moves_the_targeted_share_up_and_others_down() -> void:
+	var map := _fresh_map()
+	var before: Dictionary = map._sim.state.politics[map.PLAYER_SIDE].duplicate(true)
+	map._shift_budget("budget_private")
+	map._process(0.0)
+	var pol: Dictionary = map._sim.state.politics[map.PLAYER_SIDE]
+	_check(pol["budget_private"] > before["budget_private"],
+		"shift_budget: the targeted share increases")
+	_check(pol["budget_military"] < before["budget_military"] and pol["budget_public"] < before["budget_public"],
+		"shift_budget: the other two shares decrease proportionally")
+	var total: float = pol["budget_military"] + pol["budget_private"] + pol["budget_public"]
+	_check(is_equal_approx(total, 1.0), "shift_budget: the split always still sums to 1.0")
+
+
+func _test_rapid_budget_shifts_before_a_tick_still_compound() -> void:
+	var map := _fresh_map()
+	map._shift_budget("budget_private")
+	map._shift_budget("budget_private")  # must build on the pending value, not the stale committed one
+	map._process(0.0)
+	var pol: Dictionary = map._sim.state.politics[map.PLAYER_SIDE]
+	_check(pol["budget_private"] > Politics.default_state()["budget_private"] + Politics.BUDGET_STEP * 1.5,
+		"rapid budget shifts: two presses before a tick compound, not both landing the same single step")
+
+
+func _test_coalition_panel_shows_seats_and_budget_split() -> void:
+	var map := _fresh_map()
+	var text: String = map._coalition_text()
+	_check(text.contains("Fleet Commander"), "coalition panel: lists the player's own seats")
+	_check(text.contains("individual") and text.contains("bloc"), "coalition panel: shows each seat's kind")
+	_check(text.contains("military") and text.contains("private") and text.contains("public"),
+		"coalition panel: shows the current budget split")

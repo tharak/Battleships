@@ -17,8 +17,13 @@ class_name StrategicCommands
 ##                 "occupation"; value is a level String for the first/last two
 ##                 (see strategic/planet.gd's *_LEVELS/*_STANCES) or a float for
 ##                 garrison (clamped to the planet's current manpower at apply time)
+##   set_budget    a: {side, military, private, public} -- issue #22's three-way
+##                 budget slider. Clamped >= 0 and renormalized to sum to 1.0 at
+##                 apply time (rejected entirely, keeping the prior split, if
+##                 all three clamp to a non-positive total -- see strategic_sim.gd's
+##                 _apply for why a zero-sum renormalization must never happen)
 
-const KINDS := ["spawn_fleet", "order_move", "set_policy"]
+const KINDS := ["spawn_fleet", "order_move", "set_policy", "set_budget"]
 
 
 static func make(tick: int, kind: String, args: Dictionary) -> Dictionary:

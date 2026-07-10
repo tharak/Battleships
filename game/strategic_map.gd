@@ -35,6 +35,9 @@ extends Node2D
 ##   T / C / [ / ] / O          (while a system you OWN is inspected) cycle
 ##                               taxation / conscription / garrison -- / garrison
 ##                               ++ / occupation stance
+##   M / P / G                  (issue #22) shift YOUR budget slider toward
+##                               military / private / public -- realm-wide,
+##                               no system needs to be selected
 ##   Space                      pause / resume
 ##   1 / 2 / 3                  set speed to 1x / 2x / 4x
 ##   R                          (once the campaign ends) start a new one
@@ -237,6 +240,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_step_garrison(-GARRISON_STEP)
 			KEY_BRACKETRIGHT:
 				_step_garrison(GARRISON_STEP)
+			KEY_M:
+				_shift_budget("budget_military")
+			KEY_P:
+				_shift_budget("budget_private")
+			KEY_G:
+				_shift_budget("budget_public")
 
 
 func _handle_click(pos: Vector2) -> void:
@@ -320,6 +329,49 @@ func _can_edit_selected_system() -> bool:
 	return _selected_system != "" and _sim.state.system_owner.get(_selected_system, -1) == PLAYER_SIDE
 
 
+## Issue #22: M/P/G shift the player's own realm-wide budget slider toward
+## `field` by BUDGET_STEP, taking proportionally from the other two shares
+## (not evenly -- a realm already leaning heavily private keeps that lean
+## after a military bump, it doesn't get evenly redistributed away). Emits a
+## set_budget command; strategic_sim.gd's _apply renormalizes to sum to 1.0,
+## so exact precision here doesn't matter. Always affects the player's own
+## realm -- budget is realm-wide, unlike planet policies, so no selected
+## system is needed (or checked).
+func _shift_budget(field: String) -> void:
+	var current := _pending_budget()
+	var others: Array[String] = ["budget_military", "budget_private", "budget_public"]
+	others.erase(field)
+	var new_target: float = current[field] + Politics.BUDGET_STEP
+	var remaining: float = maxf(0.0, 1.0 - new_target)
+	var others_sum: float = current[others[0]] + current[others[1]]
+	var new_a: float
+	var new_b: float
+	if others_sum > 0.0:
+		new_a = current[others[0]] * (remaining / others_sum)
+		new_b = current[others[1]] * (remaining / others_sum)
+	else:
+		new_a = remaining / 2.0
+		new_b = remaining / 2.0
+	var shares := {field: new_target, others[0]: new_a, others[1]: new_b}
+	_stream.record(StrategicCommands.make(_sim.state.tick, "set_budget", {
+		"side": PLAYER_SIDE,
+		"military": shares["budget_military"], "private": shares["budget_private"], "public": shares["budget_public"],
+	}))
+
+
+## Same "read the latest still-pending command, not just committed sim state"
+## fix already applied to planet policies (_pending_policy_value) -- two M/P/G
+## presses in a row, before the sim has had a chance to apply the first,
+## must build on each other instead of both reading the same stale split.
+func _pending_budget() -> Dictionary:
+	for i in range(_stream._next_index, _stream.commands.size()):
+		var cmd: Dictionary = _stream.commands[i]
+		if cmd["k"] == "set_budget" and cmd["a"]["side"] == PLAYER_SIDE:
+			var a: Dictionary = cmd["a"]
+			return {"budget_military": a["military"], "budget_private": a["private"], "budget_public": a["public"]}
+	return _sim.state.politics[PLAYER_SIDE]
+
+
 func _fleet_pos(f: Dictionary) -> Vector2:
 	var from_pos: Vector2 = Galaxy.SYSTEMS[f["system"]]["pos"]
 	if f["dest"] == null:
@@ -343,9 +395,30 @@ func _update_label() -> void:
 			int(_sim.state.materiel.get(0, 0.0)), int(_sim.state.materiel.get(1, 0.0)), int(_sim.state.materiel.get(2, 0.0)),
 		]
 	_label.text += _home_front_warning_text()
+	_label.text += _coalition_text()
 	_label.text += _planet_panel_text()
 	if _campaign_over:
 		_label.text += "\n\n%s\nPress R to start a new campaign" % _campaign_result
+
+
+## Issue #22's "coalition sidebar" (GDD §9): the player's own seats, their
+## satisfaction, and the current budget split -- always visible, not gated
+## behind selecting anything, since GDD calls the budget slider "the most
+## important control... it must never be more than one click away."
+func _coalition_text() -> String:
+	var pol: Dictionary = _sim.state.politics[PLAYER_SIDE]
+	var lines := "\n\n-- Coalition (W=%d) --\n" % pol["seats"].size()
+	lines += "budget: military %d%%  private %d%%  public %d%%   (M/P/G to shift)\n" % [
+		int(round(pol["budget_military"] * 100.0)), int(round(pol["budget_private"] * 100.0)), int(round(pol["budget_public"] * 100.0)),
+	]
+	var seat_ids: Array = pol["seats"].keys()
+	seat_ids.sort()
+	var seat_lines: Array[String] = []
+	for id in seat_ids:
+		var seat: Dictionary = pol["seats"][id]
+		seat_lines.append("%s (%s) %d%%" % [seat["name"], seat["kind"], int(seat["satisfaction"])])
+	lines += "  ".join(seat_lines)
+	return lines
 
 
 ## Issue #21's showable outcome: "a build where the loudest threat is behind

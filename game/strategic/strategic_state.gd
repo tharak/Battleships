@@ -38,15 +38,22 @@ class_name StrategicState
 ## a planet's stats persist through conquest (Planet.advance just reads whichever
 ## side currently owns it), and an unowned/neutral system's planet simply doesn't
 ## evolve (Planet.advance's owner==-1 early-out) until someone claims it.
+##
+## `politics`: side (int) -> Dictionary (issue #22, GDD §4.5 — see strategic/
+## politics.gd for the full field list/formulas). Seeded for sides 0/1/2
+## alongside `materiel`, same one-default-per-realm precedent as `planets`.
 
 var tick: int = 0  # weeks
 var fleets: Dictionary = {}  # id -> Dictionary
 var system_owner: Dictionary = {}  # id (String) -> int side
 var materiel: Dictionary = {0: 0.0, 1: 0.0, 2: 0.0}  # side -> stockpile (issue #16: 3 realms)
 var planets: Dictionary = {}  # id (String) -> Dictionary
+var politics: Dictionary = {}  # side (int) -> Dictionary
 
 
 func _init() -> void:
 	for id in Galaxy.SYSTEMS.keys():
 		system_owner[id] = Galaxy.SYSTEMS[id]["owner"]
 		planets[id] = Planet.default_state()
+	for side in [0, 1, 2]:
+		politics[side] = Politics.default_state()

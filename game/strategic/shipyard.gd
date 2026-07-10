@@ -53,7 +53,17 @@ static func home_system(side: int) -> String:
 ## stop", GDD §4.3) — a REBEL_SIDE-owned system already contributes zero to
 ## anyone for free via the `side < 0` skip below, so this only matters for a
 ## planet still owned by a regular side but underperforming.
-static func accrue(state: StrategicState) -> void:
+##
+## Issue #22: only the MILITARY share of this revenue actually lands in
+## state.materiel — GDD's budget slider splits the same tick revenue three
+## ways, and materiel is specifically what funds "fleets, shipyards, garrisons,
+## fortress upkeep" (the military share). The private/public shares are what
+## Politics.advance (strategic_sim.gd's _advance_economy) spends on seat
+## satisfaction and planet grievance relief instead — this function returns
+## the RAW per-side total (before that split) so the caller can pass it on,
+## a real, deliberate contract change from before this issue (previously the
+## whole total landed in state.materiel unconditionally).
+static func accrue(state: StrategicState) -> Dictionary:
 	var totals := {}
 	for id in state.system_owner.keys():
 		var side: int = state.system_owner[id]
@@ -62,7 +72,9 @@ static func accrue(state: StrategicState) -> void:
 		var planet: Dictionary = state.planets[id]
 		totals[side] = totals.get(side, 0.0) + Planet.materiel_output(planet) * Rebellion.delivery_mult(planet)
 	for side in totals.keys():
-		state.materiel[side] = state.materiel.get(side, 0.0) + totals[side]
+		var military_frac: float = state.politics.get(side, {}).get("budget_military", 1.0)
+		state.materiel[side] = state.materiel.get(side, 0.0) + totals[side] * military_frac
+	return totals
 
 
 ## Repairs one fleet by up to REBUILD_RATE strength this tick, IF it's docked

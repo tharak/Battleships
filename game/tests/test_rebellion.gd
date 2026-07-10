@@ -85,7 +85,10 @@ func _test_accrue_reflects_strikes_and_riots() -> void:
 	var state := StrategicState.new()
 	state.planets["A1"]["unrest"] = 65.0  # strikes
 	Shipyard.accrue(state)
-	_check(is_equal_approx(state.materiel[0], Planet.INDUSTRY_BASE * Rebellion.STRIKE_DELIVERY_MULT + 3.0 * Planet.INDUSTRY_BASE),
+	# Issue #22: only the military budget share lands in state.materiel.
+	var military_frac: float = state.politics[0]["budget_military"]
+	var expected := (Planet.INDUSTRY_BASE * Rebellion.STRIKE_DELIVERY_MULT + 3.0 * Planet.INDUSTRY_BASE) * military_frac
+	_check(is_equal_approx(state.materiel[0], expected),
 		"accrue: a striking planet contributes only its cut, the other 3 owned systems contribute in full")
 
 

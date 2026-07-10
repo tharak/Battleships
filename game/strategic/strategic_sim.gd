@@ -83,12 +83,25 @@ func _advance_supply() -> void:
 		Supply.advance(state, id)
 
 
+## Issue #22: Shipyard.accrue returns each side's RAW tick revenue (before the
+## budget split -- it already only credited state.materiel with the military
+## share); Politics.advance is what spends the private/public shares.
+## Deliberately driven by state.politics.keys() (a fixed side list), NOT
+## revenue.keys() -- accrue()'s returned dict only contains a side that
+## currently owns at least one system, so looping over IT would silently
+## freeze a fully-conquered realm's seat satisfaction forever instead of
+## correctly drifting it toward the (zero-revenue) unhappy target it should
+## have. This is the same *shape* of bug issue #16 already taught this
+## codebase once (a hardcoded/incomplete side loop starving a 3rd realm of a
+## per-tick effect) -- caught by a design review before it shipped this time.
 func _advance_economy() -> void:
-	Shipyard.accrue(state)
+	var revenue := Shipyard.accrue(state)
 	var ids := state.fleets.keys()
 	ids.sort()
 	for id in ids:
 		Shipyard.rebuild(state, id)
+	for side in state.politics.keys():
+		Politics.advance(state, side, revenue.get(side, 0.0))
 
 
 func run_stream(stream: StrategicCommandStream, ticks: int) -> void:
@@ -123,6 +136,27 @@ func _apply(cmd: Dictionary) -> void:
 					p["garrison"] = clampf(float(a["value"]), 0.0, p["manpower"])
 				else:
 					p[field] = String(a["value"])
+		"set_budget":
+			if state.politics.has(a["side"]):
+				var military: float = maxf(0.0, float(a["military"]))
+				var private: float = maxf(0.0, float(a["private"]))
+				var public: float = maxf(0.0, float(a["public"]))
+				var total := military + private + public
+				# Issue #22: a design review flagged this exact guard -- three
+				# independent floats (unlike set_policy's single enum value)
+				# can drift out of summing to 1.0, and dividing by a
+				# degenerate all-zero/negative-clamped total would silently
+				# produce NaN, which is sticky under addition and would
+				# permanently wreck this realm's state.materiel the next time
+				# Shipyard.accrue multiplies by it. Reject the command
+				# instead (keep the prior split) rather than ever normalize
+				# a zero-sum input.
+				if total <= 0.0:
+					return
+				var pol: Dictionary = state.politics[a["side"]]
+				pol["budget_military"] = military / total
+				pol["budget_private"] = private / total
+				pol["budget_public"] = public / total
 
 
 ## Pops the next hop off `f["path"]` into `f["dest"]`, resetting progress — or
