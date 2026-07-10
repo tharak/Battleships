@@ -101,9 +101,17 @@ func _ready() -> void:
 	if StrategicSession.sim == null:
 		_sim = StrategicSim.new()
 		StrategicSession.sim = _sim
-		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Home Fleet", "side": 0, "system": "A1", "preset": "line"}))
-		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Realm B Fleet", "side": 1, "system": "B1", "preset": "line"}))
-		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Realm C Fleet", "side": 2, "system": "C1", "preset": "line"}))
+		# Issue #27: each side's hand-balanced fixed start (CampaignConfig
+		# defaults every field to "confederacy" -- Starts.gd's exact copy of
+		# the pre-#27 hardcoded defaults -- so a caller that never touches
+		# CampaignConfig, like every existing test's _fresh_map(), sees this
+		# whole block behave exactly as it did before this issue existed).
+		var starts := {0: CampaignConfig.player_start_id, 1: CampaignConfig.ai_b_start_id, 2: CampaignConfig.ai_c_start_id}
+		for side in starts.keys():
+			Starts.apply(_sim.state, side, starts[side])
+		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Home Fleet", "side": 0, "system": "A1", "preset": Starts.fleet_preset(starts[0])}))
+		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Realm B Fleet", "side": 1, "system": "B1", "preset": Starts.fleet_preset(starts[1])}))
+		_stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "Realm C Fleet", "side": 2, "system": "C1", "preset": Starts.fleet_preset(starts[2])}))
 	else:
 		# Resuming a session already in progress -- either just returning from a
 		# fought battle (apply its result first) or the player used R to bail

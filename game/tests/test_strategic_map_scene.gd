@@ -34,6 +34,7 @@ func _init() -> void:
 	_test_same_tick_removal_is_not_masked_by_a_pending_contact()
 	_test_regime_action_key_takes_effect_immediately_while_paused()
 	_test_coalition_panel_status_matches_removal_advance_during_instability_window()
+	_test_ready_applies_each_sides_campaign_config_start()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -399,3 +400,29 @@ func _test_coalition_panel_status_matches_removal_advance_during_instability_win
 	_check(text.contains("CRISIS"),
 		"coalition panel: status line reflects the SAME instability-bumped threshold Removal.advance itself uses")
 	map.free()
+
+
+## Issue #27: _ready() must read each side's start from CampaignConfig (not
+## just always seed "confederacy") and use that start's own fleet preset --
+## reset CampaignConfig back to its all-"confederacy" defaults afterward so
+## this doesn't leak into any other test in this same process.
+func _test_ready_applies_each_sides_campaign_config_start() -> void:
+	CampaignConfig.player_start_id = "junta"
+	CampaignConfig.ai_b_start_id = "republic"
+	CampaignConfig.ai_c_start_id = "trade_federation"
+
+	var map := _fresh_map()
+	map._process(0.0)  # apply_due_commands() materializes _ready()'s initial spawn_fleet commands
+	_check(map._sim.state.politics[0]["seats"].size() == 3, "player start (junta): W=3, matching Starts.RECIPES")
+	_check(map._sim.state.politics[1]["seats"].size() == 10, "realm B start (republic): W=10")
+	_check(map._sim.state.politics[2]["seats"].size() == 8, "realm C start (trade_federation): W=8")
+	var home_fleet_id := ""
+	for id in map._sim.state.fleets.keys():
+		if map._sim.state.fleets[id]["side"] == 0:
+			home_fleet_id = id
+	_check(map._sim.state.fleets[home_fleet_id]["preset"] == "wedge", "player's initial fleet spawns with junta's own preset (wedge), not the hardcoded default")
+	map.free()
+
+	CampaignConfig.player_start_id = "confederacy"
+	CampaignConfig.ai_b_start_id = "confederacy"
+	CampaignConfig.ai_c_start_id = "confederacy"
