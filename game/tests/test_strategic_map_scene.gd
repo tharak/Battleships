@@ -25,6 +25,8 @@ func _init() -> void:
 	_test_planet_panel_shows_escalation_state_and_siege_progress()
 	_test_home_front_warning_surfaces_the_worst_owned_system_unprompted()
 	_test_home_front_warning_ignores_calm_and_other_realms_systems()
+	_test_policy_change_takes_effect_immediately_while_paused()
+	_test_fleet_order_takes_effect_immediately_while_paused()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -231,4 +233,47 @@ func _test_home_front_warning_ignores_calm_and_other_realms_systems() -> void:
 	_check(map._home_front_warning_text() == "", "home front warning: silent when every owned system is calm")
 	map._sim.state.planets["B1"]["unrest"] = 95.0  # a rival realm's own system, not the player's
 	_check(map._home_front_warning_text() == "", "home front warning: never surfaces another realm's troubles as your own")
+	map.free()
+
+
+## The actual bug report: pressing T/C/[/]/O (or clicking to move a fleet)
+## while paused used to sit inertly in the command stream -- step() is what
+## applies commands, and _process() only called it while NOT paused. Exercises
+## the real scene's _process(), not a reimplementation.
+func _test_policy_change_takes_effect_immediately_while_paused() -> void:
+	var map := _fresh_map()
+	map._paused = true
+	map._handle_system_inspect_click(Galaxy.SYSTEMS["A1"]["pos"])
+	_check(map._sim.state.planets["A1"]["taxation"] == "moderate", "test setup: starts at moderate")
+	var tick_before: int = map._sim.state.tick
+
+	map._cycle_policy("taxation", Planet.TAXATION_LEVELS)
+	map._process(0.016)  # one frame, still paused
+
+	_check(map._sim.state.planets["A1"]["taxation"] == "heavy",
+		"paused: a policy change takes effect on the very next frame, not after unpausing")
+	_check(map._sim.state.tick == tick_before, "paused: simulated time genuinely did not advance")
+	map.free()
+
+
+func _test_fleet_order_takes_effect_immediately_while_paused() -> void:
+	var map := _fresh_map()
+	map._paused = true
+	map._process(0.0)  # apply_due_commands() materializes _ready()'s initial spawn_fleet commands
+	var blue_id := ""
+	for id in map._sim.state.fleets.keys():
+		if map._sim.state.fleets[id]["side"] == map.PLAYER_SIDE:
+			blue_id = id
+			break
+	_check(blue_id != "", "test setup: the player has a fleet")
+	map._selected_fleet = blue_id
+	_check(map._sim.state.fleets[blue_id]["dest"] == null, "test setup: the fleet starts with no destination")
+	var tick_before: int = map._sim.state.tick
+
+	map._handle_click(Galaxy.SYSTEMS["A2"]["pos"])
+	map._process(0.016)  # one frame, still paused
+
+	_check(map._sim.state.fleets[blue_id]["dest"] != null,
+		"paused: a fleet move order takes effect on the very next frame, not after unpausing")
+	_check(map._sim.state.tick == tick_before, "paused: simulated time genuinely did not advance")
 	map.free()

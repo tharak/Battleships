@@ -28,8 +28,7 @@ func _init() -> void:
 ## just "arrived") so a caller can react without re-deriving them, same
 ## convention as sim/sim.gd's step().
 func step(stream: StrategicCommandStream) -> Array:
-	for cmd in stream.due(state.tick):
-		_apply(cmd)
+	apply_due_commands(stream)
 	var events := _advance_fleets()
 	_advance_planets()
 	_advance_rebellion()
@@ -37,6 +36,23 @@ func step(stream: StrategicCommandStream) -> Array:
 	_advance_economy()
 	state.tick += 1
 	return events
+
+
+## Applies whatever commands are due at the CURRENT tick without advancing
+## simulated time at all. step() already does exactly this as its first move
+## (so factoring it out here is a zero-behavior-change refactor for every
+## existing caller — tests, run_stream(), determinism/replay all still see
+## identical results) — exposed standalone so a caller can apply a
+## freshly-issued order immediately even while time itself isn't advancing.
+## strategic_map.gd calls this every frame regardless of pause state, so
+## giving an order (set_policy, order_move) while paused takes visible effect
+## right away instead of sitting inertly in the stream until the player
+## unpauses. Safe to call repeatedly with nothing new recorded:
+## StrategicCommandStream.due() is a consuming cursor, never replays the same
+## command twice.
+func apply_due_commands(stream: StrategicCommandStream) -> void:
+	for cmd in stream.due(state.tick):
+		_apply(cmd)
 
 
 ## Issue #17: policy drift/growth for every planet, settled BEFORE _advance_economy

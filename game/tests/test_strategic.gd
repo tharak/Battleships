@@ -28,6 +28,7 @@ func _init() -> void:
 	_test_fleet_travels_and_arrives()
 	_test_multi_hop_order_completes_both_legs()
 	_test_time_controls_pause_stops_ticks()
+	_test_apply_due_commands_applies_without_advancing_time()
 	_test_fog_of_war_hides_distant_enemy_fleet()
 	_test_three_realms_own_their_sectors()
 	_test_arrival_captures_neutral_system()
@@ -176,6 +177,33 @@ func _test_time_controls_pause_stops_ticks() -> void:
 	for t in range(10):
 		sim.step(stream)
 	_check(sim.state.tick == 10, "time controls: N step() calls always advances exactly N ticks")
+
+
+## The fix for "orders don't work while paused": applying a command must not
+## require simulated time to advance at all. apply_due_commands() is what
+## strategic_map.gd calls every frame regardless of _paused -- confirms both
+## an order_move and a set_policy take effect immediately, with state.tick
+## never moving, and that it's safe to call repeatedly with nothing new
+## recorded (StrategicCommandStream.due() is a consuming cursor).
+func _test_apply_due_commands_applies_without_advancing_time() -> void:
+	var stream := StrategicCommandStream.new()
+	stream.record(StrategicCommands.make(0, "spawn_fleet", {"id": "F1", "side": 0, "system": "A1"}))
+	var sim := StrategicSim.new()
+	sim.apply_due_commands(stream)
+	_check(sim.state.tick == 0, "apply_due_commands: never advances simulated time")
+	_check(sim.state.fleets.has("F1"), "apply_due_commands: the spawn command already took effect")
+
+	stream.record(StrategicCommands.make(0, "order_move", {"id": "F1", "path": ["A2"]}))
+	stream.record(StrategicCommands.make(0, "set_policy", {"system": "A1", "field": "taxation", "value": "heavy"}))
+	sim.apply_due_commands(stream)
+	_check(sim.state.tick == 0, "apply_due_commands: still hasn't advanced time")
+	_check(sim.state.fleets["F1"]["dest"] == "A2", "apply_due_commands: the fleet's destination is set immediately")
+	_check(sim.state.planets["A1"]["taxation"] == "heavy", "apply_due_commands: the policy change is visible immediately")
+
+	# Calling it again with nothing new recorded is a harmless no-op.
+	sim.apply_due_commands(stream)
+	_check(sim.state.tick == 0 and sim.state.fleets["F1"]["dest"] == "A2",
+		"apply_due_commands: safe to call repeatedly -- nothing changes when nothing new is due")
 
 
 func _test_fog_of_war_hides_distant_enemy_fleet() -> void:

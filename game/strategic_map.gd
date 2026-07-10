@@ -105,6 +105,15 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Applying an already-recorded order is NOT the same thing as advancing
+	# simulated time -- pausing should only block the latter. Without this,
+	# T/C/[/]/O policy changes and fleet move orders issued while paused sit
+	# inertly in the stream (step() is what actually applies them, and it's
+	# only called below, inside the "not _paused" guard) until the player
+	# unpauses, which reads as the controls simply not working. Safe to call
+	# every frame regardless of pause state: StrategicCommandStream.due() is a
+	# consuming cursor, so this is a harmless no-op once nothing new is due.
+	_sim.apply_due_commands(_stream)
 	if not _paused and not _campaign_over:
 		_accum += delta * _speed
 		var tick_len := 1.0 / TICKS_PER_SEC
