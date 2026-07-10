@@ -22,6 +22,18 @@ static var player_preset := FleetPresets.DEFAULT
 static var enemy_preset := FleetPresets.DEFAULT
 static var terrain_option := "asteroid_flank"
 
+## A map-contact battle's fleets are usually damaged/rebuilt from their preset's
+## original total (strategic/shipyard.gd) by the time they fight — -1 means "use
+## the preset's own total", so the skirmish menu and every existing test (which
+## never touch these) still spawn a fresh, full-strength preset exactly as
+## before this override existed. Set by battle_bridge.gd's seed_skirmish to the
+## contacting fleets' actual current strategic strength; main.gd's _spawn_scene
+## distributes it across the preset's squadron count instead of using the
+## preset's flat per-squadron strength, so a mauled fleet actually shows up
+## mauled in the tactical view, not full-strength every time.
+static var player_total_strength := -1
+static var enemy_total_strength := -1
+
 ## Issue #14, GDD §5.8: supply-driven tactical modifiers, set by strategic/
 ## battle_bridge.gd when a map contact launches a battle. Default 1.0/100.0
 ## (no penalty) so the skirmish menu and every existing test — which never

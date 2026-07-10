@@ -79,8 +79,10 @@ func _apply(cmd: Dictionary) -> void:
 
 
 ## Pops the next hop off `f["path"]` into `f["dest"]`, resetting progress — or
-## clears `dest` (holds position) once the path is exhausted.
-func _start_next_hop(f: Dictionary) -> void:
+## clears `dest` (holds position) once the path is exhausted. Static (doesn't
+## touch `self.state`) so battle_bridge.gd's post-battle retreat can reuse it
+## on a fleet dict without needing a StrategicSim instance.
+static func _start_next_hop(f: Dictionary) -> void:
 	if f["path"].is_empty():
 		f["dest"] = null
 		return

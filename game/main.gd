@@ -322,6 +322,27 @@ func _sync_3d_visuals() -> void:
 			_ship_meshes.erase(id)
 
 
+## Splits `total` strength across up to `count` squadrons as evenly as
+## possible (remainder going to the first squadrons), never handing out a
+## 0-strength squadron — if `total` can't fill every slot at 1 strength each,
+## the fleet spawns with fewer squadrons instead. A map-contact battle's fleets
+## are usually damaged/rebuilt off their preset's original total by the time
+## they fight (SkirmishConfig.player_total_strength/enemy_total_strength,
+## set by strategic/battle_bridge.gd's seed_skirmish) — this is what makes a
+## mauled fleet actually show up mauled in the tactical view, not full-strength
+## every time.
+static func _distribute_strength(total: int, count: int) -> Array[int]:
+	var n := mini(count, maxi(total, 0))
+	var out: Array[int] = []
+	if n <= 0:
+		return out
+	var base := total / n
+	var remainder := total % n
+	for i in range(n):
+		out.append(base + (1 if i < remainder else 0))
+	return out
+
+
 ## Both fleets spawn in a neutral Line and the enemy reacts under its own AI
 ## (issue #10, sim/battle_ai.gd) from the first tick — no forced starting-shape
 ## advantage for either side; press F1-F6 to reform your own into whatever the
@@ -329,35 +350,46 @@ func _sync_3d_visuals() -> void:
 ## SkirmishConfig (issue #11's skirmish menu — see skirmish_menu.gd), which
 ## defaults to the same "asteroid_flank" setup the pre-#11 hardcoded demo always
 ## used, so running main.tscn directly (every existing test, or the editor) still
-## behaves the same as before the menu existed.
+## behaves the same as before the menu existed. player_total_strength/
+## enemy_total_strength default to -1 ("use the preset's own total"), so
+## everything except a real map-contact battle spawns exactly the preset's
+## flat count/strength, unchanged from before that override existed.
 func _spawn_scene() -> void:
 	var player_preset: Dictionary = FleetPresets.PRESETS[SkirmishConfig.player_preset]
 	var enemy_preset: Dictionary = FleetPresets.PRESETS[SkirmishConfig.enemy_preset]
+	var player_total := SkirmishConfig.player_total_strength
+	if player_total < 0:
+		player_total = FleetPresets.total_strength(SkirmishConfig.player_preset)
+	var enemy_total := SkirmishConfig.enemy_total_strength
+	if enemy_total < 0:
+		enemy_total = FleetPresets.total_strength(SkirmishConfig.enemy_preset)
+	var player_strengths := _distribute_strength(player_total, int(player_preset["count"]))
+	var enemy_strengths := _distribute_strength(enemy_total, int(enemy_preset["count"]))
 
 	var player_anchor := Vector2(380, 320)
-	var player_line := Formations.generate("line", int(player_preset["count"]))
+	var player_line := Formations.generate("line", player_strengths.size())
 	var pslots: Array = player_line["slots"]
 	for i in range(pslots.size()):
 		var s: Dictionary = pslots[i]
 		var pos: Vector2 = player_anchor + Vector2(s["fwd"], s["lat"]) * SLOT_SPACING
 		_stream.record(Commands.make(0, "spawn", {
 			"id": "B%d" % (i + 1), "side": 0, "pos": Commands.pos_to_array(pos),
-			"facing": 0.0, "strength": player_preset["strength"], "flag": i == player_line["flag"],
+			"facing": 0.0, "strength": player_strengths[i], "flag": i == player_line["flag"],
 		}))
 
 	var enemy_anchor := Vector2(700, 320)
 	var enemy_facing := 180.0
-	var enemy_line := Formations.generate("line", int(enemy_preset["count"]))
+	var enemy_line := Formations.generate("line", enemy_strengths.size())
 	var eslots: Array = enemy_line["slots"]
 	for i in range(eslots.size()):
 		var s: Dictionary = eslots[i]
 		var pos: Vector2 = enemy_anchor + Vector2(s["fwd"], s["lat"]).rotated(deg_to_rad(enemy_facing)) * SLOT_SPACING
 		_stream.record(Commands.make(0, "spawn", {
 			"id": "R%d" % (i + 1), "side": 1, "pos": Commands.pos_to_array(pos),
-			"facing": enemy_facing, "strength": enemy_preset["strength"], "flag": i == enemy_line["flag"],
+			"facing": enemy_facing, "strength": enemy_strengths[i], "flag": i == enemy_line["flag"],
 		}))
 
-	if SkirmishConfig.terrain_option == "asteroid_flank":
+	if SkirmishConfig.terrain_option == "asteroid_flank" and not player_strengths.is_empty():
 		# Issue #9 (GDD §5.7): an asteroid field south of the enemy line's flank,
 		# with an extra blue squadron already hidden inside it. Its distance to
 		# every enemy squadron is chosen between Terrain.ASTEROID_DETECT_RADIUS
@@ -373,7 +405,7 @@ func _spawn_scene() -> void:
 		}))
 		_stream.record(Commands.make(0, "spawn", {
 			"id": "B_ambush", "side": 0, "pos": Commands.pos_to_array(field_pos),
-			"facing": 0.0, "strength": player_preset["strength"], "flag": false,
+			"facing": 0.0, "strength": player_strengths[0], "flag": false,
 		}))
 
 

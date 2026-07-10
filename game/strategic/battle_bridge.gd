@@ -54,6 +54,8 @@ static func seed_skirmish(state: StrategicState, player_fleet: String, enemy_fle
 	var f1: Dictionary = state.fleets[enemy_fleet]
 	SkirmishConfig.player_preset = f0.get("preset", FleetPresets.DEFAULT)
 	SkirmishConfig.enemy_preset = f1.get("preset", FleetPresets.DEFAULT)
+	SkirmishConfig.player_total_strength = int(f0["strength"])
+	SkirmishConfig.enemy_total_strength = int(f1["strength"])
 	SkirmishConfig.terrain_option = "none"
 	var mod0 := tactical_modifiers(f0["supply"])
 	var mod1 := tactical_modifiers(f1["supply"])
@@ -76,6 +78,16 @@ static func seed_skirmish(state: StrategicState, player_fleet: String, enemy_fle
 ## deliberately generic (matching AutoResolve.resolve's own "a"/"b" convention),
 ## not "side 0/side 1", since this is called for arbitrary side pairs in the
 ## AI-vs-AI case.
+##
+## A survivor that doesn't end this battle owning the system it was just fought
+## over — a defeated fleet that got some ships out via the tactical border, a
+## mutual withdrawal where neither side broke the other, an AutoResolve loser
+## that wasn't wiped out — retreats toward its own nearest owned system instead
+## of sitting exposed on ground it doesn't hold. A fleet that already IS
+## sitting on one of its own systems (e.g. a defender that held its ground)
+## finds itself as the "nearest" one and doesn't move. One rule covers both the
+## interactive and auto-resolved paths, since it only looks at the strength/
+## ownership numbers both already produce, not at how the battle was fought.
 static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String,
 		a_strength_left: int, b_strength_left: int, system_id: String) -> void:
 	var a_side: int = state.fleets[fleet_a]["side"]
@@ -92,3 +104,26 @@ static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String
 		state.system_owner[system_id] = a_side
 	elif b_strength_left > 0 and a_strength_left <= 0:
 		state.system_owner[system_id] = b_side
+
+	if a_strength_left > 0:
+		_retreat_if_not_held(state, fleet_a, system_id)
+	if b_strength_left > 0:
+		_retreat_if_not_held(state, fleet_b, system_id)
+
+
+## Sends `fleet_id` toward the nearest system its own side currently owns, if
+## `system_id` (where it just fought) isn't one of them.
+static func _retreat_if_not_held(state: StrategicState, fleet_id: String, system_id: String) -> void:
+	var f: Dictionary = state.fleets[fleet_id]
+	var side: int = f["side"]
+	if state.system_owner.get(system_id, -1) == side:
+		return
+	var owned: Array[String] = []
+	for id in state.system_owner.keys():
+		if state.system_owner[id] == side:
+			owned.append(id)
+	var path := Galaxy.path_to_nearest(system_id, owned)
+	if path.is_empty():
+		return
+	f["path"] = path
+	StrategicSim._start_next_hop(f)

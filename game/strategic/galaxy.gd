@@ -62,13 +62,11 @@ static func neighbors(id: String) -> Array[String]:
 	return out
 
 
-## Dijkstra over the lane graph, weighted by lane_length — a small (~12 node)
-## graph, so the simplest correct shortest-path is plenty. Returns the hop
-## sequence AFTER `from` (i.e. doesn't include the start system itself, matching
-## what StrategicCommands' order_move "path" expects) or [] if no path/self-path.
-static func shortest_path(from: String, to: String) -> Array[String]:
-	if from == to:
-		return []
+## Dijkstra over the lane graph from `from`, weighted by lane_length — a small
+## (~12 node) graph, so the simplest correct all-pairs sweep is plenty. Shared
+## by shortest_path (one target) and path_to_nearest (best of several targets)
+## below, rather than duplicating the same traversal for each.
+static func _dijkstra_from(from: String) -> Dictionary:
 	var dist := {}
 	var prev := {}
 	var unvisited := {}
@@ -84,7 +82,7 @@ static func shortest_path(from: String, to: String) -> Array[String]:
 			if dist[id] < best:
 				best = dist[id]
 				current = id
-		if current == "" or current == to:
+		if current == "":
 			break
 		unvisited.erase(current)
 		for n in neighbors(current):
@@ -95,8 +93,14 @@ static func shortest_path(from: String, to: String) -> Array[String]:
 				dist[n] = alt
 				prev[n] = current
 
-	if not prev.has(to) and from != to:
+	return {"dist": dist, "prev": prev}
+
+
+static func _reconstruct(from: String, to: String, prev: Dictionary) -> Array[String]:
+	if from == to:
 		return []
+	if not prev.has(to):
+		return []  # unreachable
 	var path: Array[String] = []
 	var node := to
 	while node != from:
@@ -105,3 +109,31 @@ static func shortest_path(from: String, to: String) -> Array[String]:
 			return []  # unreachable
 		node = prev[node]
 	return path
+
+
+## Returns the hop sequence AFTER `from` (i.e. doesn't include the start system
+## itself, matching what StrategicCommands' order_move "path" expects) or [] if
+## no path/self-path.
+static func shortest_path(from: String, to: String) -> Array[String]:
+	return _reconstruct(from, to, _dijkstra_from(from)["prev"])
+
+
+## The hop sequence to whichever system in `candidates` is closest to `from` by
+## lane distance — battle_bridge.gd's "retreat to the nearest allied planet"
+## uses this with candidates = every system the retreating side currently owns.
+## Returns [] if `candidates` is empty, none are reachable, or `from` itself is
+## already in `candidates` (already home, nothing to path toward).
+static func path_to_nearest(from: String, candidates: Array[String]) -> Array[String]:
+	if candidates.has(from):
+		return []
+	var d := _dijkstra_from(from)
+	var dist: Dictionary = d["dist"]
+	var best_id := ""
+	var best_dist := INF
+	for id in candidates:
+		if dist.get(id, INF) < best_dist:
+			best_dist = dist[id]
+			best_id = id
+	if best_id == "":
+		return []
+	return _reconstruct(from, best_id, d["prev"])

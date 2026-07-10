@@ -19,6 +19,9 @@ func _init() -> void:
 	_test_shortest_path_multi_hop()
 	_test_shortest_path_same_system()
 	_test_shortest_path_prefers_shorter_route()
+	_test_path_to_nearest_picks_the_closest_candidate()
+	_test_path_to_nearest_empty_when_already_a_candidate()
+	_test_path_to_nearest_empty_when_no_candidates()
 	_test_visible_systems_includes_own_and_pickets()
 	_test_visible_systems_excludes_far_enemy_territory()
 	_test_fleet_spawns_and_holds()
@@ -84,6 +87,24 @@ func _test_shortest_path_prefers_shorter_route() -> void:
 	var path := Galaxy.shortest_path("A3", "B1")
 	_check(path[0] == "A1" and path[-1] == "B1",
 		"shortest_path: routes through the hub when the spoke itself has no chokepoint lane")
+
+
+## battle_bridge.gd's "retreat to the nearest allied planet" -- from B1, A4 and
+## A1 are both nominally "Blue territory" candidates, but A1 is 2 hops closer
+## via the B2/A2 chokepoint route, so that's the one path_to_nearest must pick.
+func _test_path_to_nearest_picks_the_closest_candidate() -> void:
+	var path := Galaxy.path_to_nearest("B1", ["A1", "A4"])
+	_check(path == ["B2", "A2", "A1"], "path_to_nearest: routes to whichever candidate is actually closer, not the first in the list")
+
+
+func _test_path_to_nearest_empty_when_already_a_candidate() -> void:
+	_check(Galaxy.path_to_nearest("A1", ["A3", "A1"]) == [],
+		"path_to_nearest: already standing on a candidate system means no travel needed")
+
+
+func _test_path_to_nearest_empty_when_no_candidates() -> void:
+	_check(Galaxy.path_to_nearest("B1", []) == [],
+		"path_to_nearest: no candidates (a wiped-out realm with no systems left) means nowhere to path to")
 
 
 ## --- pure Intel (pickets fog of war) --------------------------------------------------

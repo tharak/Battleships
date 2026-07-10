@@ -14,6 +14,8 @@ func _init() -> void:
 	print("test_main_scene — Godot ", Engine.get_version_info()["string"])
 	_test_apply_formation_moves_the_real_scene()
 	_test_battle_over_write_back_includes_escaped_strength()
+	_test_distribute_strength()
+	_test_spawn_scene_reflects_the_strategic_fleets_actual_strength()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -121,4 +123,63 @@ func _test_battle_over_write_back_includes_escaped_strength() -> void:
 	SkirmishConfig.from_map_contact = prev_from_contact
 	SkirmishConfig.battle_side0_strength_left = prev_side0
 	SkirmishConfig.battle_side1_strength_left = prev_side1
+	main.free()
+
+
+func _test_distribute_strength() -> void:
+	var Main := load("res://main.gd")
+	var got: Array = Main._distribute_strength(37, 5)
+	var sum := 0
+	for v in got:
+		sum += v
+	_check(got.size() == 5, "distribute_strength: fills every squadron when strength comfortably covers them")
+	_check(sum == 37, "distribute_strength: the pieces add back up to the original total")
+	var spread := true
+	for v in got:
+		if v < 37 / 5:
+			spread = false
+	_check(spread, "distribute_strength: nobody gets less than the even split (remainder goes to the front)")
+
+	var scarce: Array = Main._distribute_strength(3, 5)
+	_check(scarce.size() == 3,
+		"distribute_strength: too little strength to fill every slot spawns fewer squadrons, not 0-strength ones")
+	var all_positive := true
+	for v in scarce:
+		if v < 1:
+			all_positive = false
+	_check(all_positive, "distribute_strength: every spawned squadron has at least 1 strength")
+
+
+## The map-border feature's other half of the strategic contract: a fleet that's
+## taken losses (or been rebuilt) in the campaign must show up in the tactical
+## battle at ITS actual current strength, not always the same fixed preset
+## total, so "all battles start with the same amount of ships" (the bug this
+## fixes) stops being true.
+func _test_spawn_scene_reflects_the_strategic_fleets_actual_strength() -> void:
+	var prev_player := SkirmishConfig.player_total_strength
+	var prev_enemy := SkirmishConfig.enemy_total_strength
+	SkirmishConfig.player_total_strength = 20  # "line" preset (default) normally totals 5x15=75
+	SkirmishConfig.enemy_total_strength = 40   # same preset, a different current strength
+
+	var scene: PackedScene = load("res://main.tscn")
+	var main := scene.instantiate()
+	get_root().add_child(main)
+	main._ready()
+	main._sim.step(main._stream)
+
+	var blue_total := 0
+	var red_total := 0
+	for id in main._sim.state.squadrons.keys():
+		var sq: Dictionary = main._sim.state.squadrons[id]
+		if sq["side"] == main.PLAYER_SIDE and id != "B_ambush":
+			blue_total += sq["strength"]
+		elif sq["side"] != main.PLAYER_SIDE:
+			red_total += sq["strength"]
+	_check(blue_total == 20,
+		"spawn_scene: blue's tactical strength matches the strategic override, not the full preset (got %d want 20)" % blue_total)
+	_check(red_total == 40,
+		"spawn_scene: red's tactical strength matches the strategic override, not the full preset (got %d want 40)" % red_total)
+
+	SkirmishConfig.player_total_strength = prev_player
+	SkirmishConfig.enemy_total_strength = prev_enemy
 	main.free()

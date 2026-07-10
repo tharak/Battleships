@@ -22,6 +22,7 @@ func _init() -> void:
 	_test_seed_skirmish_fills_config_from_fleets()
 	_test_apply_result_removes_wiped_fleet_and_updates_survivor()
 	_test_apply_result_mutual_wipeout_leaves_ownership_untouched()
+	_test_apply_result_retreats_a_survivor_that_didnt_capture()
 	_test_auto_resolve_mismatch_favors_stronger_side()
 	_test_auto_resolve_even_fight_costs_both_sides()
 	_test_auto_resolve_starved_fleet_fares_worse_than_full_supply()
@@ -84,11 +85,13 @@ func _test_detect_contact_empty_when_no_contact() -> void:
 
 func _test_seed_skirmish_fills_config_from_fleets() -> void:
 	var state := StrategicState.new()
-	state.fleets["Blue"] = {"side": 0, "system": "B1", "dest": null, "preset": "wedge", "supply": 80.0}
-	state.fleets["Red"] = {"side": 1, "system": "B1", "dest": null, "preset": "swarm", "supply": 20.0}
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "dest": null, "preset": "wedge", "supply": 80.0, "strength": 50}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "dest": null, "preset": "swarm", "supply": 20.0, "strength": 30}
 	BattleBridge.seed_skirmish(state, "Blue", "Red")
 	_check(SkirmishConfig.player_preset == "wedge" and SkirmishConfig.enemy_preset == "swarm",
 		"seed_skirmish: each side's roster preset carries over")
+	_check(SkirmishConfig.player_total_strength == 50 and SkirmishConfig.enemy_total_strength == 30,
+		"seed_skirmish: each side's actual current strength carries over, not the preset's flat total")
 	_check(SkirmishConfig.player_uptime_mult == 1.0 and SkirmishConfig.enemy_uptime_mult == 0.5,
 		"seed_skirmish: each side's supply maps to its own tactical modifiers")
 	_check(SkirmishConfig.from_map_contact and SkirmishConfig.contact_fleet_ids == ["Blue", "Red"],
@@ -117,6 +120,24 @@ func _test_apply_result_mutual_wipeout_leaves_ownership_untouched() -> void:
 		"apply_result: a mutual wipeout removes both fleets")
 	_check(state.system_owner["B1"] == owner_before,
 		"apply_result: a mutual wipeout leaves ownership untouched -- nobody's left to claim it")
+
+
+## A survivor that doesn't end the battle owning the system it fought over --
+## here, a mutual withdrawal at B1 (Red's home turf, per Galaxy.SYSTEMS) where
+## neither side broke the other -- retreats toward its own nearest owned
+## system instead of sitting on ground it doesn't hold. B1's only route into
+## Blue's realm (Sector A) is via B2 (the sole A-B chokepoint lane), so that's
+## the first hop a retreating Blue fleet should take.
+func _test_apply_result_retreats_a_survivor_that_didnt_capture() -> void:
+	var state := StrategicState.new()
+	state.fleets["Blue"] = {"side": 0, "system": "B1", "dest": null, "progress": 0.0, "path": [], "strength": 90}
+	state.fleets["Red"] = {"side": 1, "system": "B1", "dest": null, "progress": 0.0, "path": [], "strength": 90}
+	BattleBridge.apply_result(state, "Blue", "Red", 30, 30, "B1")
+	_check(state.system_owner["B1"] == 1, "retreat setup: B1 stays Red's -- neither side captured it")
+	_check(state.fleets["Blue"]["dest"] == "B2",
+		"retreat: a survivor stranded on ground it doesn't hold starts moving toward its own realm")
+	_check(state.fleets["Red"]["dest"] == null,
+		"retreat: Red already owns B1, so it doesn't need to go anywhere")
 
 
 ## --- pure AutoResolve functions ----------------------------------------------------------
