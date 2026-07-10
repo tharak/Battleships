@@ -386,6 +386,14 @@ func _rebel_panel_text() -> String:
 		lines += "siege by side %d: %d/%d ticks" % [int(p["siege_side"]), int(p["siege_progress"]), int(Rebellion.SIEGE_TICKS)]
 	else:
 		lines += "no siege under way -- a lone fleet parked here starts one"
+	# Issue #20: a defection is a slower, free alternative to a siege -- shown
+	# even while a siege ISN'T active (the only time it can accumulate at all,
+	# per Rebellion._advance_siege), so a ruler watching a mistreated border
+	# world can see it coming, not just discover it after the fact.
+	if int(p["defection_side"]) >= 0 and p["defection_progress"] > 0.0:
+		lines += "\nside %d is winning them over: %d/%d ticks" % [
+			int(p["defection_side"]), int(p["defection_progress"]), int(Rebellion.DEFECTION_TICKS),
+		]
 	return lines
 
 

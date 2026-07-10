@@ -36,6 +36,12 @@ func _init() -> void:
 
 	_test_ai_holds_a_siege_instead_of_wandering_off()
 
+	_test_harshness_includes_taxation_conscription_and_occupation()
+	_test_defection_flips_to_a_gentler_neighbor_and_excludes_the_former_ruler()
+	_test_defection_needs_a_real_gap_not_a_marginal_one()
+	_test_same_side_fleet_freezes_defection_without_resetting_it()
+	_test_different_side_fleet_resets_defection_progress()
+
 	if _failures == 0:
 		print("ALL PASS")
 		quit(0)
@@ -274,3 +280,114 @@ func _test_ai_holds_a_siege_instead_of_wandering_off() -> void:
 	_check(not wandered_off, "AI siege: stays parked at B2 the whole time, never reordered away mid-siege")
 	_check(sim.state.system_owner["B2"] == 1,
 		"AI siege: given long enough parked in place, the siege actually completes")
+
+
+## --- Issue #20: occupation stances & planet defection -----------------------------------
+
+func _test_harshness_includes_taxation_conscription_and_occupation() -> void:
+	var state := StrategicState.new()
+	state.planets["A1"]["taxation"] = "heavy"       # 45
+	state.planets["A1"]["conscription"] = "heavy"   # 30
+	# A1's native owner is side 0 -- passing owner_override == native excludes
+	# occupation (it's not conquered ground relative to that owner).
+	_check(is_equal_approx(Rebellion._harshness(state, "A1", 0), 75.0),
+		"harshness: native ownership excludes the occupation term (45 tax + 30 conscription)")
+	state.planets["A1"]["occupation"] = "plunder"   # 60
+	# owner_override == 1 (NOT A1's native owner 0) means this is conquered
+	# ground from side 1's point of view -- occupation now applies.
+	_check(is_equal_approx(Rebellion._harshness(state, "A1", 1), 135.0),
+		"harshness: conquered ownership (owner != native) includes the occupation term too (75 + 60)")
+
+
+## A2 is native to side 0 (A2-A1 and A2-B2 are both real lanes) -- rebels
+## against side 0, and B2 (side 1's own territory, genuinely gentler) is right
+## next door. A1 (side 0, the very side A2 just rejected) is ALSO left gentle
+## on purpose -- it must never be picked, however low its own harshness is.
+func _test_defection_flips_to_a_gentler_neighbor_and_excludes_the_former_ruler() -> void:
+	var state := StrategicState.new()
+	state.system_owner["A2"] = Rebellion.REBEL_SIDE
+	state.planets["A2"]["rebelled_from"] = 0
+	state.planets["A2"]["taxation"] = "punitive"     # 75
+	state.planets["A2"]["conscription"] = "total"    # 60 -- own_harshness == 135 (native, no occupation)
+	state.planets["A2"]["scorched"] = true           # simulate an earlier siege-retake cycle
+
+	state.planets["A1"]["taxation"] = "light"        # gentle, but A1 is side 0 -- must be excluded
+	state.planets["A1"]["conscription"] = "volunteer"
+	state.planets["B2"]["taxation"] = "light"         # genuinely gentler AND a different side (1)
+	state.planets["B2"]["conscription"] = "volunteer" # harshness == 5, gap of 130 >> the margin
+
+	var flipped := false
+	for t in range(int(Rebellion.DEFECTION_TICKS) + 5):
+		Rebellion.advance(state, "A2")
+		if state.system_owner.get("A2", -1) != Rebellion.REBEL_SIDE:
+			flipped = true
+			break
+	_check(flipped, "defection: a rebel planet next to a much gentler neighbor eventually defects")
+	_check(state.system_owner["A2"] == 1, "defection: joins the genuinely gentler neighbor (side 1), not the former ruler (side 0)")
+	_check(state.planets["A2"]["unrest"] == 20.0 and state.planets["A2"]["loyalty"] == 60.0,
+		"defection: gets the RELIEF stat reset, not the siege retake's harsher scorched floor")
+	_check(not state.planets["A2"]["scorched"], "defection: clears a stale scorched flag from an earlier siege-retake cycle")
+	_check(state.planets["A2"]["rebelled_from"] == -1, "defection: clears rebelled_from on success")
+	_check(state.planets["A2"]["occupation"] == "administer", "defection: starts the new owner at a neutral occupation stance")
+
+
+func _test_defection_needs_a_real_gap_not_a_marginal_one() -> void:
+	var state := StrategicState.new()
+	state.system_owner["A2"] = Rebellion.REBEL_SIDE
+	state.planets["A2"]["rebelled_from"] = 0
+	state.planets["A2"]["taxation"] = "heavy"         # 45 + 10 (moderate conscription default) == 55
+	state.planets["B2"]["taxation"] = "heavy"         # same harshness (55) -- no gap at all
+	for t in range(int(Rebellion.DEFECTION_TICKS) + 5):
+		Rebellion.advance(state, "A2")
+	_check(state.system_owner["A2"] == Rebellion.REBEL_SIDE,
+		"defection: never triggers when no neighbor clears the harshness margin, however long it persists")
+	_check(state.planets["A2"]["defection_side"] == -1, "defection: no candidate is ever adopted without a real gap")
+
+
+func _test_same_side_fleet_freezes_defection_without_resetting_it() -> void:
+	var state := StrategicState.new()
+	state.system_owner["A2"] = Rebellion.REBEL_SIDE
+	state.planets["A2"]["rebelled_from"] = 0
+	state.planets["A2"]["taxation"] = "punitive"
+	state.planets["A2"]["conscription"] = "total"
+	state.planets["B2"]["taxation"] = "light"
+	state.planets["B2"]["conscription"] = "volunteer"
+
+	for t in range(10):
+		Rebellion.advance(state, "A2")
+	var progress_before: float = state.planets["A2"]["defection_progress"]
+	_check(progress_before > 0.0, "test setup: real defection progress accumulated toward side 1")
+
+	# A fleet from side 1 -- the SAME side the planet is already defecting
+	# toward -- parks there. Progress must freeze, not reset.
+	state.fleets["Friendly"] = {"side": 1, "system": "A2", "dest": null, "progress": 0.0, "path": [], "supply": 100.0, "preset": "line", "strength": 75}
+	Rebellion.advance(state, "A2")
+	_check(state.planets["A2"]["defection_progress"] == progress_before,
+		"same-side fleet: defection progress freezes (siege_progress accumulates instead), not reset to 0")
+
+	state.fleets.erase("Friendly")
+	Rebellion.advance(state, "A2")
+	_check(state.planets["A2"]["defection_progress"] > progress_before,
+		"same-side fleet leaving: defection resumes counting from where it left off")
+
+
+func _test_different_side_fleet_resets_defection_progress() -> void:
+	var state := StrategicState.new()
+	state.system_owner["A2"] = Rebellion.REBEL_SIDE
+	state.planets["A2"]["rebelled_from"] = 0
+	state.planets["A2"]["taxation"] = "punitive"
+	state.planets["A2"]["conscription"] = "total"
+	state.planets["B2"]["taxation"] = "light"
+	state.planets["B2"]["conscription"] = "volunteer"
+
+	for t in range(10):
+		Rebellion.advance(state, "A2")
+	_check(state.planets["A2"]["defection_progress"] > 0.0, "test setup: real defection progress accumulated toward side 1")
+
+	# A fleet from side 0 -- NOT the side it's defecting toward -- parks there
+	# instead. This is now an active siege, and it cancels the defection.
+	state.fleets["Rival"] = {"side": 0, "system": "A2", "dest": null, "progress": 0.0, "path": [], "supply": 100.0, "preset": "line", "strength": 75}
+	Rebellion.advance(state, "A2")
+	_check(state.planets["A2"]["defection_progress"] == 0.0,
+		"different-side fleet: an active siege from a rival side cancels the defection in progress")
+	_check(state.planets["A2"]["defection_side"] == -1, "different-side fleet: defection target is cleared too")

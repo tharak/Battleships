@@ -92,6 +92,12 @@ static func default_state() -> Dictionary:
 		# advance()/unrest_target formula (a fast-follow, not silently dropped;
 		# same honest scope boundary as food_output being display-only below).
 		"siege_progress": 0.0, "siege_side": -1, "scorched": false,
+		# Issue #20 (Rebellion.gd): rebelled_from records who a REBEL_SIDE
+		# planet rejected (so defection can't just walk back to the same
+		# ruler for free); defection_progress/defection_side track an
+		# in-progress voluntary defection to a neighboring realm, the
+		# unsieged sibling of siege_progress/siege_side above.
+		"rebelled_from": -1, "defection_progress": 0.0, "defection_side": -1,
 	}
 
 
