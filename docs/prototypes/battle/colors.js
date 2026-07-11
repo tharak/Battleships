@@ -4,24 +4,23 @@
 
 export const SIDE_COLORS = { 0: "#4a9eff", 1: "#ff5a5a" };
 
-// One explicit entry per on-board unit state. `fill: null` means "use the
-// side color" -- Steady has no override color of its own. `activated` is a
-// turn-flow pseudo-state (already acted this turn), not a morale state, but
-// is rendered the same way (a hex fill + outline) so it gets a slot here
-// too, deliberately a different gray from `routed` so the two are never
-// confused at a glance.
+// A squadron's hex fill is always its faction's SIDE_COLORS -- state is
+// shown entirely via the border color, one explicit entry per state here.
+// `null` means "use the side color" (Steady has no accent of its own, so
+// its border just matches the fill). Precedence when more than one applies
+// (e.g. a Shaken squadron that already acted this turn): routed > shaken >
+// activated > steady, applied in render.js.
 export const STATE_COLORS = {
-  steady:    { fill: null,      outline: "#0b0e14" },
-  shaken:    { fill: null,      outline: "#ffd166" }, // gold outline + "!" icon
-  routed:    { fill: "#8a7a6a", outline: "#0b0e14" }, // warm gray
-  activated: { fill: "#454b58", outline: "#0b0e14" }, // cool gray
+  steady:    null,
+  shaken:    "#ffd166", // yellow
+  routed:    "#ff3333", // red
+  activated: "#8892ab", // grey
 };
 
 export const ACCENT = {
   flagshipArrow: "#ffd166",
   selectionOutline: "#ffffff",
   targetOutline: "#ff3333",
-  shakenIcon: "#ffd166",
   labelText: "#0b0e14",   // squadron id / flagship star / non-flagship arrow fill
   pipFilled: "#ffffff",
   pipEmpty: "#ffffff33",

@@ -5,8 +5,6 @@ export const COLS = 24, ROWS = 18, RANGE = 3, CMD_R = 4, MP_MAX = 3, MAX_TURNS =
 
 export const MoraleState = Object.freeze({ STEADY: 0, SHAKEN: 1, ROUTED: 2 });
 export const STATE_NAME = ["Steady", "Shaken", "ROUTED"];
-// Maps a MoraleState value to its colors.js STATE_COLORS key.
-export const STATE_KEY = ["steady", "shaken", "routed"];
 
 export const HOLD_FORMS = new Set(["sphere"]);
 

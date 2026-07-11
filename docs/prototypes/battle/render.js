@@ -1,6 +1,6 @@
 // Canvas rendering. Reads component data via queries.js and colors via
 // colors.js -- never mutates game state.
-import { COLS, ROWS, RANGE, CMD_R, HS, HW, OX, OY, MoraleState, STATE_KEY } from "./config.js";
+import { COLS, ROWS, RANGE, CMD_R, HS, HW, OX, OY, MoraleState } from "./config.js";
 import { DIR_ANGLE, hexDist, losClear, inFireArc, key } from "./hexmath.js";
 import { inSetupZone } from "./formations.js";
 import { SIDE_COLORS, STATE_COLORS, ACCENT, BOARD_TINT } from "./colors.js";
@@ -109,15 +109,15 @@ export function draw(state) {
   for (const side of [0, 1]) for (const e of Q.aliveOfSide(state, side)) {
     const [x, y] = hexCenter(...Q.posOf(state, e));
     const morale = Q.moraleOf(state, e), activated = Q.isActivated(state, e);
-    const stateKey = morale === ROUTED ? "routed" : (activated ? "activated" : STATE_KEY[morale]);
     hexPath(x, y, HS - 3.5);
-    // ROUTED and "already acted this turn" (activated) are both grays, but
-    // deliberately DIFFERENT tones (cool slate vs warm gray) so they never
-    // get confused for each other at a glance -- see colors.js.
-    cx2.fillStyle = STATE_COLORS[stateKey].fill ?? SIDE_COLORS[side];
+    // Fill is always the squadron's faction color -- state is shown purely
+    // via the border. Precedence when more than one applies: routed >
+    // shaken > activated > steady (see colors.js).
+    cx2.fillStyle = SIDE_COLORS[side];
     cx2.fill();
-    if (morale === SHAKEN) { cx2.strokeStyle = STATE_COLORS.shaken.outline; cx2.lineWidth = 2.5; }
-    else { cx2.strokeStyle = STATE_COLORS[STATE_KEY[morale]].outline; cx2.lineWidth = 1.5; }
+    const stateKey = morale === ROUTED ? "routed" : (morale === SHAKEN ? "shaken" : (activated ? "activated" : "steady"));
+    cx2.strokeStyle = STATE_COLORS[stateKey] ?? SIDE_COLORS[side];
+    cx2.lineWidth = 1.5;
     cx2.stroke();
     if (act && act.u === e) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = 2; cx2.stroke(); }
     if (tgts.includes(e)) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.targetOutline; cx2.lineWidth = 2.5; cx2.stroke(); }
@@ -139,12 +139,6 @@ export function draw(state) {
     for (let i = 0; i < 4; i++) {
       cx2.beginPath(); cx2.arc(x - 9 + i * 6, y + HS - 8, 2, 0, 7);
       cx2.fillStyle = i < strength ? ACCENT.pipFilled : ACCENT.pipEmpty; cx2.fill();
-    }
-    // Shaken "!" -- the gold outline above is easy to miss at a glance;
-    // an icon reads immediately even zoomed out or mid-scan.
-    if (morale === SHAKEN) {
-      cx2.fillStyle = ACCENT.shakenIcon; cx2.font = "bold 13px system-ui"; cx2.textAlign = "center";
-      cx2.fillText("!", x + HS - 6, y - HS + 12);
     }
   }
 }
