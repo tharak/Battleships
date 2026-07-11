@@ -139,7 +139,7 @@ function renderFrame(state) {
     cx2.fill();
     const stateKey = morale === ROUTED ? "routed" : (morale === SHAKEN ? "shaken" : (activated ? "activated" : "steady"));
     cx2.strokeStyle = STATE_COLORS[stateKey];
-    cx2.lineWidth = 3;
+    cx2.lineWidth = 1.5;
     cx2.stroke();
     if (act && act.u === e) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = 2; cx2.stroke(); }
     if (tgts.includes(e)) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.targetOutline; cx2.lineWidth = 2.5; cx2.stroke(); }
