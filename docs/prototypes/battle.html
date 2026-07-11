@@ -81,6 +81,14 @@
       <label><input type="radio" name="fsize" value="9" checked> 9 squadrons (breaks at 5)</label>
       <label><input type="radio" name="fsize" value="12"> 12 squadrons (breaks at 7)</label>
     </div>
+    <div class="opts" id="movepick">
+      <b>Movement:</b>
+      <label><input type="radio" name="movemode" value="0" checked> Sequential (one squadron at a time, as usual)</label>
+      <label><input type="radio" name="movemode" value="1"> Simultaneous (everyone plans a destination, then all move together — collisions destroy every squadron that ends a step on the same hex)</label>
+    </div>
+    <p style="color:var(--dim);max-width:70ch;font-size:12.5px">Any side you control deploys its own
+    squadrons by hand before the battle starts (click your shaded zone); the AI picks a random
+    formation once you're done. Scenario formations below still apply to a spectated AI-vs-AI match.</p>
     <div id="scenlist"></div>
   </div>
 
@@ -100,7 +108,19 @@
             <button id="btnFire" class="danger">Fire</button>
             <button id="btnEnd" class="primary">End activation</button>
           </div>
-          <div class="kbd"><kbd>Q</kbd>/<kbd>E</kbd> turn · <kbd>W</kbd> forward ·
+          <div id="setupControls" style="display:none;flex-wrap:wrap;gap:6px">
+            <button id="btnSetupL">&#10226; Turn</button>
+            <button id="btnSetupR">&#10227; Turn</button>
+            <button id="btnSetupFlag">&#9733; Set flagship</button>
+            <button id="btnSetupRemove" class="danger">Remove</button>
+            <button id="btnSetupConfirm" class="primary">Confirm deployment</button>
+          </div>
+          <div id="planControls" style="display:none;flex-wrap:wrap;gap:6px">
+            <button id="btnPlanHold">Hold selected</button>
+            <button id="btnPlanClear">Clear all my orders</button>
+            <button id="btnPlanConfirm" class="primary">Confirm round</button>
+          </div>
+          <div class="kbd" id="kbdHint"><kbd>Q</kbd>/<kbd>E</kbd> turn · <kbd>W</kbd> forward ·
             <kbd>S</kbd> back · <kbd>F</kbd> fire mode · <kbd>Space</kbd> end · click a
             unit to select / a highlighted enemy to shoot</div>
         </div>
@@ -245,16 +265,20 @@ function formationLayout(name,size){
 }
 const range=(a,b)=>{const o=[];for(let i=a;i<=b;i++)o.push(i);return o;};
 
+// Shared unit-record shape, factored out of deploy() so the new manual
+// setup phase (below) can build the exact same kind of unit record from a
+// player-placed hex+facing instead of a formation offset.
+function makeUnit(side,i,pos,facing,isFlag){
+  return {side,pos,facing,strength:4,state:STEADY,flag:isFlag,hitSinceAct:false,
+    activated:false,alive:true,exited:false,id:(side===0?"B":"R")+(i+1)};
+}
 function deploy(name,side){
   const {u,flag}=formationLayout(name,SIZE);
   const straight=side===0?0:3, toPos=side===0?5:4, toNeg=side===0?1:2;
-  const units=u.map((([fwd,lat,df],i)=>({
-    side, pos:[side===0?5+fwd:18-fwd, 9+lat],
-    facing: df===0?straight:(df>0?toPos:toNeg),
-    strength:4, state:STEADY, flag:i===flag, hitSinceAct:false,
-    activated:false, alive:true, exited:false,
-    id:(side===0?"B":"R")+(i+1)
-  })));
+  const units=u.map(([fwd,lat,df],i)=>makeUnit(side,i,
+    [side===0?5+fwd:18-fwd, 9+lat],
+    df===0?straight:(df>0?toPos:toNeg),
+    i===flag));
   if(name==="sphere"){
     const c=units[0].pos;
     for(const un of units.slice(1)){
@@ -265,6 +289,14 @@ function deploy(name,side){
   return units;
 }
 const argmin=(arr,f)=>arr.reduce((b,x)=>f(x)<f(b)?x:b);
+
+/* ============ manual deployment / random AI formation (setup phase) ============ */
+const FORMATION_NAMES=["line","spindle","crescent","echelon","sphere","column"];
+const randomFormationName=()=>FORMATION_NAMES[Math.floor(Math.random()*FORMATION_NAMES.length)];
+// Deployment zones: each side may only place squadrons in its own half,
+// leaving a neutral no-man's-land in the middle columns.
+const SETUP_ZONE=[[0,8],[15,COLS-1]];
+function inSetupZone(side,c){const[lo,hi]=SETUP_ZONE[side];return c>=lo&&c<=hi;}
 
 /* ============ scenarios ============ */
 const SCENARIOS=[
@@ -293,23 +325,99 @@ let G=null;           // battle state
 let scen=null, ctrlMode=0;
 let act=null;         // human activation {u, mp, moved, fired, fireMode}
 let autoTimer=null;
+let moveMode=0;        // 0=sequential (one squadron activates at a time), 1=simultaneous (plan-then-resolve rounds)
+let setup=null;        // active manual deployment: {side, placed:[{pos,facing}], selected, flagShip}
+let setupQueue=[];     // remaining human-controlled sides still needing manual deployment
+let plan=null;         // active simultaneous-mode planning: {side, selected}
+let planQueue=[];      // remaining human-controlled sides still needing to plan this round
 
 function newBattle(){
   BREAK_AT=(SIZE>>1)+1;
+  act=null;setup=null;setupQueue=[];plan=null;planQueue=[];
+  logEl.innerHTML="";
+  log(`Scenario: ${scen.t} — ${SIZE} squadrons a side, breaks at ${BREAK_AT}`,"t");
+  if(ctrlMode===3){ // spectate: unchanged -- both sides keep the scenario's exact fixed formation, no manual setup
+    G={
+      turn:0, lastActed:1, over:false, winner:null,
+      fleets:[
+        {name:scen.a, units:deploy(scen.a,0), supply:scen.supA||"ok", flagLost:false},
+        {name:scen.b, units:deploy(scen.b,1), supply:scen.supB||"ok", flagLost:false},
+      ],
+    };
+    startCombat();
+    return;
+  }
+  // Any side you control deploys itself by hand; AI side(s) get a random
+  // formation once every human side has confirmed (confirmSetup below).
   G={
     turn:0, lastActed:1, over:false, winner:null,
     fleets:[
-      {name:scen.a, units:deploy(scen.a,0), supply:scen.supA||"ok", flagLost:false},
-      {name:scen.b, units:deploy(scen.b,1), supply:scen.supB||"ok", flagLost:false},
+      {name:null, units:[], supply:scen.supA||"ok", flagLost:false},
+      {name:null, units:[], supply:scen.supB||"ok", flagLost:false},
     ],
   };
-  act=null;
-  logEl.innerHTML="";
-  log(`Scenario: ${scen.t} — ${SIZE} squadrons a side, breaks at ${BREAK_AT}`,"t");
+  const humanSides=[0,1].filter(humanControls);
+  setupQueue=humanSides.slice(1);
+  beginSetupFor(humanSides[0]);
+}
+function startCombat(){
   const supTag=s=>s==="ok"?"":` (${s.toUpperCase()} SUPPLY)`;
-  log(`Blue: ${scen.a}${supTag(G.fleets[0].supply)} — Red: ${scen.b}${supTag(G.fleets[1].supply)}`);
-  newTurn();
-  proceed();
+  log(`Blue: ${G.fleets[0].name}${supTag(G.fleets[0].supply)} — Red: ${G.fleets[1].name}${supTag(G.fleets[1].supply)}`);
+  if(moveMode===1){startSimRound();}
+  else{newTurn();proceed();}
+}
+
+/* ---- manual deployment (setup phase) ---- */
+function beginSetupFor(side){
+  setup={side, placed:[], selected:null, flagShip:null};
+  act=null;
+  log(`${sideName(side)}: deploy your squadrons — click your shaded zone.`,"t");
+  draw();updatePanels();
+}
+function handleSetupClick(h){
+  const [c,r]=h;
+  const hit=setup.placed.find(p=>p.pos[0]===c&&p.pos[1]===r);
+  if(hit){setup.selected=hit;draw();updatePanels();return;}
+  if(setup.placed.length>=SIZE||!inSetupZone(setup.side,c))return;
+  const ship={pos:[c,r],facing:setup.side===0?0:3};
+  setup.placed.push(ship);
+  setup.selected=ship;
+  if(!setup.flagShip)setup.flagShip=ship;
+  draw();updatePanels();
+}
+function setupTurn(dir){
+  if(!setup||!setup.selected)return;
+  setup.selected.facing=(setup.selected.facing+dir+6)%6;
+  draw();updatePanels();
+}
+function setupToggleFlag(){
+  if(!setup||!setup.selected)return;
+  setup.flagShip=setup.selected;
+  draw();updatePanels();
+}
+function setupRemove(){
+  if(!setup||!setup.selected)return;
+  const i=setup.placed.indexOf(setup.selected);
+  setup.placed.splice(i,1);
+  if(setup.flagShip===setup.selected)setup.flagShip=setup.placed[0]||null;
+  setup.selected=setup.placed[Math.min(i,setup.placed.length-1)]||null;
+  draw();updatePanels();
+}
+function confirmSetup(){
+  if(!setup||setup.placed.length!==SIZE)return;
+  const side=setup.side;
+  G.fleets[side].name="custom";
+  G.fleets[side].units=setup.placed.map((p,i)=>makeUnit(side,i,p.pos.slice(),p.facing,p===setup.flagShip));
+  log(`${sideName(side)} deployment confirmed — ${SIZE} squadrons.`,"t");
+  setup=null;
+  if(setupQueue.length){beginSetupFor(setupQueue.shift());return;}
+  for(const s of [0,1]) if(!humanControls(s)){
+    const name=randomFormationName();
+    G.fleets[s].name=name;
+    G.fleets[s].units=deploy(name,s);
+    log(`${sideName(s)} (AI) deploys in ${name} formation.`,"t");
+  }
+  startCombat();
 }
 function units(side){return G.fleets[side].units;}
 function alive(side){return units(side).filter(u=>u.alive);}
@@ -520,6 +628,190 @@ function proceed(){
   else setTimeout(go,250);
 }
 
+/* ============ simultaneous movement mode ============ */
+// Same fire-arc/morale/destroy rules as sequential play; only how a round's
+// MOVEMENT is decided and resolved differs (plan-then-resolve-together
+// instead of one squadron activating at a time).
+function desiredDirFromPos(fromPos,goal){
+  const ang=angleBetween(fromPos,goal);
+  return argmin(range(0,5),d=>Math.abs(((DIR_ANGLE[d]-ang+180)%360+360)%360-180));
+}
+function startSimRound(){
+  if(G.over)return;
+  G.turn++;
+  for(const f of G.fleets) for(const u of f.units) u.planDest=null;
+  log(`— Round ${G.turn} —`,"t");
+  const humanSides=[0,1].filter(humanControls);
+  if(!humanSides.length){ // spectate: pace it like sequential AI-vs-AI instead of freezing the tab
+    setTimeout(()=>{
+      if(G.over)return;
+      for(const s of [0,1]) autoPlanAI(s);
+      resolveSimRound();
+    },250);
+    return;
+  }
+  planQueue=humanSides.slice(1);
+  beginPlanFor(humanSides[0]);
+}
+function beginPlanFor(side){
+  plan={side,selected:null};
+  log(`${sideName(side)}: plan your squadrons' moves for round ${G.turn}.`,"t");
+  draw();updatePanels();
+}
+function handlePlanClick(h){
+  const [c,r]=h;
+  const hit=alive(plan.side).find(u=>u.pos[0]===c&&u.pos[1]===r);
+  if(hit&&hit.state!==ROUTED){plan.selected=hit;draw();updatePanels();return;}
+  if(!plan.selected)return;
+  const u=plan.selected;
+  if(hexDist(u.pos,[c,r])>MP_MAX){
+    log(`${u.id} can't reach that hex this round (max ${MP_MAX}).`,"bad");return;
+  }
+  if(u.state===SHAKEN){ // same "may not close distance" restriction as sequential play
+    const ne=nearestEnemy(u);
+    if(ne&&hexDist([c,r],ne.pos)<hexDist(u.pos,ne.pos)){
+      log(`${u.id} is Shaken — it refuses an order that closes on the enemy.`,"bad");return;
+    }
+  }
+  u.planDest=[c,r];
+  draw();updatePanels();
+}
+function confirmPlan(){
+  for(const u of alive(plan.side)) if(!u.planDest) u.planDest=u.pos.slice();
+  plan=null;
+  if(planQueue.length){beginPlanFor(planQueue.shift());return;}
+  for(const s of [0,1]) if(!humanControls(s)) autoPlanAI(s);
+  resolveSimRound();
+}
+function autoPlanAI(side){ // destination-only version of aiActivate's movement logic
+  const hold=HOLD_FORMS.has(G.fleets[side].name);
+  for(const u of alive(side)){
+    if(u.state===ROUTED){continue;} // resolved separately, via rally-check-then-flee
+    const ne=nearestEnemy(u);
+    if(!ne||(hold&&hexDist(u.pos,ne.pos)<=RANGE+1)||(u.state===SHAKEN&&!hold)){
+      u.planDest=u.pos.slice();continue;
+    }
+    let pos=u.pos.slice();
+    for(let i=0;i<MP_MAX;i++){
+      if(hexDist(pos,ne.pos)<=RANGE)break;
+      const nx=neighbor(pos,desiredDirFromPos(pos,ne.pos));
+      if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS)break;
+      pos=nx;
+    }
+    u.planDest=pos;
+  }
+}
+// Builds a lockstep path of up to MP_MAX one-hex substeps toward dest,
+// turning to face (one substep, no hex change) when not already aligned --
+// same "turn OR move, one per MP" rule sequential play uses.
+function simBuildPath(u,dest){
+  const path=[];
+  let pos=u.pos.slice(), facing=u.facing;
+  for(let i=0;i<MP_MAX;i++){
+    if(pos[0]===dest[0]&&pos[1]===dest[1])break;
+    const d=desiredDirFromPos(pos,dest);
+    if(facing!==d){
+      const diff=((d-facing)%6+6)%6;
+      facing=(facing+(diff<=3?1:5))%6;
+      path.push({pos:pos.slice(),facing});
+      continue;
+    }
+    const nx=neighbor(pos,facing);
+    if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS){path.push({exit:true,facing});break;}
+    pos=nx;
+    path.push({pos:pos.slice(),facing});
+  }
+  return path;
+}
+function simFleeingPath(u){ // routed-unit variant of simBuildPath, mirrors flee()
+  const d=u.side===0?3:0;
+  const path=[];
+  let pos=u.pos.slice(), facing=u.facing;
+  for(let i=0;i<MP_MAX;i++){
+    if(facing!==d){
+      const diff=((d-facing)%6+6)%6;
+      facing=(facing+(diff<=3?1:5))%6;
+      path.push({pos:pos.slice(),facing});
+      continue;
+    }
+    const nx=neighbor(pos,facing);
+    if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS){path.push({exit:true,facing});break;}
+    pos=nx;
+    path.push({pos:pos.slice(),facing});
+  }
+  return path;
+}
+function checkEndSim(){
+  if(G.over)return true;
+  for(const s of [0,1]) if(losses(s)>=BREAK_AT) return gameOver(1-s,"break");
+  if(G.turn>=MAX_TURNS){
+    const s0=alive(0).reduce((a,u)=>a+u.strength,0), s1=alive(1).reduce((a,u)=>a+u.strength,0);
+    return gameOver(s0===s1?null:(s0>s1?0:1),"time");
+  }
+  return false;
+}
+function resolveSimRound(){
+  const paths=new Map();
+  for(const f of G.fleets) for(const u of f.units){
+    if(!u.alive)continue;
+    if(u.state===ROUTED){
+      if(!u.hitSinceAct){
+        const bonus=inCommand(u)?1:0, r=d6();
+        if(r+bonus>=4){
+          u.state=SHAKEN;u.hitSinceAct=false;
+          log(`${u.id} RALLIES (${r}${bonus?"+1":""}) — now Shaken`,"good");
+          continue; // rallied: no movement this round
+        }
+        log(`${u.id} fails to rally (${r}${bonus?"+1":""}) and keeps running`);
+      }
+      u.hitSinceAct=false;
+      paths.set(u,simFleeingPath(u));
+    }else{
+      paths.set(u,simBuildPath(u,u.planDest||u.pos));
+    }
+  }
+  // Up to MP_MAX lockstep one-hex substeps, everyone moving together; ANY
+  // hex two or more squadrons occupy after a substep (whether moving into it
+  // or just standing there) destroys everyone on it -- checked every
+  // substep, not just at the final destination.
+  for(let step=0;step<MP_MAX;step++){
+    const exiting=[], effPos=new Map();
+    for(const f of G.fleets) for(const u of f.units){
+      if(!u.alive)continue;
+      const entry=paths.get(u)?.[step];
+      if(entry&&entry.exit){exiting.push(u);u.facing=entry.facing;continue;}
+      if(entry){u.facing=entry.facing;effPos.set(u,entry.pos);}
+      else effPos.set(u,u.pos);
+    }
+    for(const u of exiting){u.alive=false;u.exited=true;log(`  ${u.id} flees off the map`,"bad");}
+    const groups=new Map();
+    for(const [u,pos] of effPos){
+      const k=key(pos[0],pos[1]);
+      if(!groups.has(k))groups.set(k,[]);
+      groups.get(k).push({u,pos});
+    }
+    for(const [k,list] of groups){
+      if(list.length>1){
+        log(`  Collision at hex ${k}: ${list.map(x=>x.u.id).join(", ")} all destroyed`,"bad");
+        for(const {u} of list) destroy(u);
+      }else list[0].u.pos=list[0].pos;
+    }
+    if(checkEndSim())return;
+  }
+  // firing phase: every surviving non-routed squadron with a legal target fires
+  const shooters=[...alive(0),...alive(1)].filter(u=>u.state!==ROUTED).sort((a,b)=>a.id<b.id?-1:1);
+  for(const u of shooters){
+    if(!u.alive)continue;
+    const tgt=pickTarget(u);
+    if(tgt)fire(u,tgt);
+    if(checkEndSim())return;
+  }
+  for(const f of G.fleets) for(const u of f.units) u.planDest=null;
+  draw();updatePanels();
+  if(checkEndSim())return;
+  startSimRound();
+}
+
 /* human actions */
 function selectUnit(u){
   if(!act||act.u||u.side!==act.side||u.activated||!u.alive) return;
@@ -533,6 +825,19 @@ function selectUnit(u){
   act.u=u;act.mp=MP_MAX;act.moved=false;act.fired=false;act.fireMode=false;
   act.cmd=inCommand(u);
   draw();updatePanels();
+}
+// A selection with no move/fire committed yet isn't "spent" -- let the
+// player pick a different un-activated squadron instead of being stuck
+// with an accidental click. Once ANY MP has been spent or it has fired,
+// the choice is locked in (matches "activation" being the real commitment).
+function canSwitchSelection(){
+  return act&&act.u&&!act.moved&&!act.fired;
+}
+function switchSelection(u){
+  if(!canSwitchSelection()||u===act.u) return;
+  act.u.activated=false;
+  act.u=null;
+  selectUnit(u);
 }
 const canMove=()=>act&&act.u&&act.mp>0&&(act.cmd||!act.fired);
 const canBack=()=>canMove()&&act.mp>=MP_MAX;   // backward = the whole move
@@ -604,7 +909,7 @@ function gameOver(winner,how){
   log(`BATTLE OVER — ${title}. ${body}`,"t");
   document.getElementById("ovTitle").textContent=title;
   document.getElementById("ovBody").textContent=body+
-    (scen.a==="sphere"||scen.b==="sphere"?` (Sphere survival score: ${G.turn} turns.)`:"");
+    (G.fleets[0].name==="sphere"||G.fleets[1].name==="sphere"?` (Sphere survival score: ${G.turn} turns.)`:"");
   document.getElementById("ovResult").textContent=result;
   document.getElementById("overlay").style.display="flex";
   draw();updatePanels();
@@ -657,13 +962,70 @@ function draw(){
     cx2.strokeStyle="#1d2438";cx2.lineWidth=1;cx2.stroke();
   }
   if(!G)return;
-  // command radii
+  // manual deployment overlay: zone tint + placed ships (drawn in addition to
+  // the normal unit loop below, so an already-confirmed side's real units
+  // still show up while the other side is still placing, in hotseat).
+  if(setup){
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+      if(!inSetupZone(setup.side,c))continue;
+      const [x,y]=hexCenter(c,r);
+      hexPath(x,y,HS-0.6);
+      cx2.fillStyle=setup.side===0?"#4a9eff14":"#ff5a5a14";
+      cx2.fill();
+    }
+    for(const p of setup.placed){
+      const [x,y]=hexCenter(p.pos[0],p.pos[1]);
+      const col=setup.side===0?"#4a9eff":"#ff5a5a";
+      hexPath(x,y,HS-3.5);
+      cx2.fillStyle=col;cx2.fill();
+      cx2.strokeStyle=p===setup.flagShip?"#ffd166":"#0b0e14";
+      cx2.lineWidth=p===setup.flagShip?2.5:1.5;
+      cx2.stroke();
+      if(p===setup.selected){hexPath(x,y,HS-1);cx2.strokeStyle="#fff";cx2.lineWidth=2;cx2.stroke();}
+      const a=DIR_ANGLE[p.facing]*Math.PI/180;
+      cx2.beginPath();
+      cx2.moveTo(x+Math.cos(a)*(HS-4),y+Math.sin(a)*(HS-4));
+      cx2.lineTo(x+Math.cos(a+2.6)*(HS-11),y+Math.sin(a+2.6)*(HS-11));
+      cx2.lineTo(x+Math.cos(a-2.6)*(HS-11),y+Math.sin(a-2.6)*(HS-11));
+      cx2.closePath();cx2.fillStyle=p===setup.flagShip?"#ffd166":"#0b0e14";cx2.fill();
+      if(p===setup.flagShip){
+        cx2.fillStyle="#0b0e14";cx2.font="bold 9px system-ui";cx2.textAlign="center";
+        cx2.fillText("★",x,y+3);
+      }
+    }
+  }
+  // command reach: painted hexes (hex-accurate), not a circle -- a circle at
+  // radius CMD_R over-includes/under-includes corner hexes vs the actual
+  // hexDist<=CMD_R test everything else (inCommand()) uses.
   for(const s of [0,1]){
     const fl=flagship(s);
     if(!fl)continue;
-    const [x,y]=hexCenter(fl.pos[0],fl.pos[1]);
-    cx2.beginPath();cx2.arc(x,y,(CMD_R+0.5)*HW,0,7);
-    cx2.strokeStyle=s===0?"#4a9eff22":"#ff5a5a22";cx2.lineWidth=2;cx2.stroke();
+    const tint=s===0?"#4a9eff1c":"#ff5a5a1c";
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+      if(hexDist(fl.pos,[c,r])>CMD_R) continue;
+      const [x,y]=hexCenter(c,r);
+      hexPath(x,y,HS-0.6);
+      cx2.fillStyle=tint;cx2.fill();
+    }
+  }
+  // simultaneous-mode planning: ghost destination markers + a line back to
+  // the squadron's current hex, for the side currently planning
+  if(plan){
+    for(const u of alive(plan.side)){
+      if(!u.planDest)continue;
+      const [ux,uy]=hexCenter(u.pos[0],u.pos[1]);
+      const [x,y]=hexCenter(u.planDest[0],u.planDest[1]);
+      cx2.beginPath();cx2.moveTo(ux,uy);cx2.lineTo(x,y);
+      cx2.strokeStyle=plan.side===0?"#4a9eff88":"#ff5a5a88";cx2.lineWidth=1.5;cx2.stroke();
+      hexPath(x,y,HS-6);
+      cx2.setLineDash([3,2]);
+      cx2.strokeStyle=plan.side===0?"#4a9eff":"#ff5a5a";cx2.lineWidth=2;cx2.stroke();
+      cx2.setLineDash([]);
+    }
+    if(plan.selected){
+      const [x,y]=hexCenter(plan.selected.pos[0],plan.selected.pos[1]);
+      hexPath(x,y,HS-1);cx2.strokeStyle="#fff";cx2.lineWidth=2;cx2.stroke();
+    }
   }
   // units
   for(const f of G.fleets)for(const u of f.units){
@@ -671,20 +1033,25 @@ function draw(){
     const [x,y]=hexCenter(u.pos[0],u.pos[1]);
     const col=u.side===0?"#4a9eff":"#ff5a5a";
     hexPath(x,y,HS-3.5);
-    cx2.fillStyle=u.state===ROUTED?"#3a3f4d":(u.activated?shade(col,0.45):col);
+    // ROUTED and "already acted this turn" (activated) are both grays, but
+    // deliberately DIFFERENT tones (cool slate vs warm gray) so they never
+    // get confused for each other at a glance.
+    cx2.fillStyle=u.state===ROUTED?"#8a7a6a":(u.activated?"#454b58":col);
     cx2.fill();
     if(u.state===SHAKEN){cx2.strokeStyle="#ffd166";cx2.lineWidth=2.5;}
     else{cx2.strokeStyle="#0b0e14";cx2.lineWidth=1.5;}
     cx2.stroke();
     if(act&&act.u===u){hexPath(x,y,HS-1);cx2.strokeStyle="#fff";cx2.lineWidth=2;cx2.stroke();}
     if(tgts.includes(u)){hexPath(x,y,HS-1);cx2.strokeStyle="#ff3333";cx2.lineWidth=2.5;cx2.stroke();}
-    // facing arrow
+    // facing arrow -- gold for the flagship (also keeps it from blending
+    // into the ★ label, which is drawn in the same dark color as a plain
+    // arrow would be) so it doubles as an at-a-glance flagship marker.
     const a=DIR_ANGLE[u.facing]*Math.PI/180;
     cx2.beginPath();
     cx2.moveTo(x+Math.cos(a)*(HS-4),y+Math.sin(a)*(HS-4));
     cx2.lineTo(x+Math.cos(a+2.6)*(HS-11),y+Math.sin(a+2.6)*(HS-11));
     cx2.lineTo(x+Math.cos(a-2.6)*(HS-11),y+Math.sin(a-2.6)*(HS-11));
-    cx2.closePath();cx2.fillStyle="#0b0e14";cx2.fill();
+    cx2.closePath();cx2.fillStyle=u.flag?"#ffd166":"#0b0e14";cx2.fill();
     // label + flagship star
     cx2.fillStyle="#0b0e14";cx2.font="bold 9px system-ui";cx2.textAlign="center";
     cx2.fillText(u.flag?"★":u.id.slice(1),x,y+3);
@@ -692,6 +1059,12 @@ function draw(){
     for(let i=0;i<4;i++){
       cx2.beginPath();cx2.arc(x-9+i*6,y+HS-8,2,0,7);
       cx2.fillStyle=i<u.strength?"#fff":"#ffffff33";cx2.fill();
+    }
+    // Shaken "!" -- the gold outline above is easy to miss at a glance;
+    // an icon reads immediately even zoomed out or mid-scan.
+    if(u.state===SHAKEN){
+      cx2.fillStyle="#ffd166";cx2.font="bold 13px system-ui";cx2.textAlign="center";
+      cx2.fillText("!",x+HS-6,y-HS+12);
     }
   }
 }
@@ -709,7 +1082,51 @@ function log(msg,cls){
   d.textContent=msg;
   logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;
 }
+function updateSetupPanels(){
+  document.getElementById("controls").style.display="none";
+  document.getElementById("setupControls").style.display="flex";
+  document.getElementById("planControls").style.display="none";
+  document.getElementById("kbdHint").style.display="none";
+  const st=document.getElementById("status");
+  st.innerHTML=`<span class="who" style="color:${setup.side===0?"var(--blue)":"var(--red)"}">`+
+    `${sideName(setup.side)} deployment</span> — ${setup.placed.length}/${SIZE} placed`;
+  const ai=document.getElementById("actinfo");
+  const sel=setup.selected;
+  ai.innerHTML=sel
+    ?`Selected squadron${sel===setup.flagShip?" — <b>flagship</b>":""}. Turn it, set flagship, remove it, `+
+      `or click an empty zone hex to place another.`
+    :(setup.placed.length<SIZE
+        ?`Click an empty hex in your shaded zone to place your next squadron (${SIZE-setup.placed.length} left).`
+        :`All ${SIZE} squadrons placed. Click one to adjust, or confirm.`);
+  document.getElementById("btnSetupL").disabled=!sel;
+  document.getElementById("btnSetupR").disabled=!sel;
+  document.getElementById("btnSetupFlag").disabled=!sel||sel===setup.flagShip;
+  document.getElementById("btnSetupRemove").disabled=!sel;
+  document.getElementById("btnSetupConfirm").disabled=setup.placed.length!==SIZE;
+}
+function updatePlanPanels(){
+  document.getElementById("controls").style.display="none";
+  document.getElementById("setupControls").style.display="none";
+  document.getElementById("planControls").style.display="flex";
+  document.getElementById("kbdHint").style.display="none";
+  const st=document.getElementById("status");
+  const planned=alive(plan.side).filter(u=>u.planDest).length;
+  st.innerHTML=`<span class="who" style="color:var(--gold)">Round ${G.turn}</span> — `+
+    `<span style="color:${plan.side===0?"var(--blue)":"var(--red)"}">${sideName(plan.side)} planning</span> — `+
+    `${planned}/${alive(plan.side).length} ordered`;
+  const ai=document.getElementById("actinfo");
+  ai.innerHTML=plan.selected
+    ?`<b>${plan.selected.id}${plan.selected.flag?" ★":""}</b> selected — click a hex within ${MP_MAX} to set its destination, or Hold.`
+    :`Click one of your squadrons, then click where it should end this round.`;
+  document.getElementById("btnPlanHold").disabled=!plan.selected;
+}
 function updatePanels(){
+  if(setup){updateSetupPanels();return;}
+  if(plan){updatePlanPanels();return;}
+  document.getElementById("controls").style.display="flex";
+  document.getElementById("setupControls").style.display="none";
+  document.getElementById("planControls").style.display="none";
+  document.getElementById("kbdHint").style.display="";
   const st=document.getElementById("status");
   if(!G)return;
   const lossStr=s=>`${losses(s)}/${BREAK_AT} losses`;
@@ -731,7 +1148,8 @@ function updatePanels(){
     ai.innerHTML=`<b>${u.id}${u.flag?" ★":""}</b> — str ${u.strength}, ${STATE_NAME[u.state]}, `+
       `${act.cmd?"in command (move + fire)":"OUT of command (move OR fire)"}<br>`+
       `MP ${act.mp}/${MP_MAX}${act.fired?" · has fired":""}`+
-      (act.fireMode?` · <span style="color:var(--red)">pick a highlighted target</span>`:"");
+      (act.fireMode?` · <span style="color:var(--red)">pick a highlighted target</span>`:"")+
+      (canSwitchSelection()?`<br><span style="color:var(--dim)">Changed your mind? Click another un-activated squadron to switch — nothing's committed yet.</span>`:"");
     btns.L.disabled=btns.R.disabled=btns.F.disabled=!canMove();
     btns.B.disabled=!canBack();
     btns.Fi.disabled=!canFire();
@@ -753,24 +1171,28 @@ function buildMenu(){
       scen=s;
       ctrlMode=+document.querySelector('input[name="ctrl"]:checked').value;
       SIZE=+document.querySelector('input[name="fsize"]:checked').value;
+      moveMode=+document.querySelector('input[name="movemode"]:checked').value;
       document.getElementById("menu").style.display="none";
       document.getElementById("battle").style.display="block";
       const spect=ctrlMode===3;
-      document.getElementById("btnStep").style.display=spect?"":"none";
-      document.getElementById("btnAuto").style.display=spect?"":"none";
+      document.getElementById("btnStep").style.display=(spect&&moveMode===0)?"":"none";
+      document.getElementById("btnAuto").style.display=(spect&&moveMode===0)?"":"none";
       newBattle();
     };
     el.appendChild(b);
   });
 }
 cv.addEventListener("click",ev=>{
-  if(!G||G.over||!act)return;
   const r=cv.getBoundingClientRect();
   const h=pixelToHex(ev.clientX-r.left,ev.clientY-r.top);
   if(!h)return;
+  if(setup){handleSetupClick(h);return;}
+  if(plan){handlePlanClick(h);return;}
+  if(!G||G.over||!act)return;
   const u=[...alive(0),...alive(1)].find(x=>x.pos[0]===h[0]&&x.pos[1]===h[1]);
   if(!u)return;
   if(!act.u){selectUnit(u);return;}
+  if(u.side===act.side&&u!==act.u&&!u.activated){switchSelection(u);return;}
   if(u.side!==act.side){doFireAt(u);return;}
 });
 document.getElementById("btnL").onclick=()=>doTurn(1);   // +1 dir index = CCW = left on screen
@@ -788,6 +1210,12 @@ document.getElementById("btnAuto").onclick=function(){
   autoTimer=setInterval(()=>{if(G.over){clearInterval(autoTimer);autoTimer=null;}else proceed();},220);
 };
 document.addEventListener("keydown",ev=>{
+  if(setup){
+    if(ev.key==="q"||ev.key==="Q")setupTurn(1);
+    else if(ev.key==="e"||ev.key==="E")setupTurn(-1);
+    return;
+  }
+  if(plan)return; // planning is click/button-driven only
   if(!act||!act.u)return;
   if(ev.key==="q"||ev.key==="Q")doTurn(1);
   else if(ev.key==="e"||ev.key==="E")doTurn(-1);
@@ -796,10 +1224,24 @@ document.addEventListener("keydown",ev=>{
   else if(ev.key==="f"||ev.key==="F"){if(canFire()){act.fireMode=true;updatePanels();draw();}}
   else if(ev.key===" "){ev.preventDefault();endActivation();}
 });
+document.getElementById("btnSetupL").onclick=()=>setupTurn(1);
+document.getElementById("btnSetupR").onclick=()=>setupTurn(-1);
+document.getElementById("btnSetupFlag").onclick=setupToggleFlag;
+document.getElementById("btnSetupRemove").onclick=setupRemove;
+document.getElementById("btnSetupConfirm").onclick=confirmSetup;
+document.getElementById("btnPlanHold").onclick=()=>{
+  if(plan&&plan.selected){plan.selected.planDest=plan.selected.pos.slice();draw();updatePanels();}
+};
+document.getElementById("btnPlanClear").onclick=()=>{
+  if(!plan)return;
+  for(const u of alive(plan.side)) u.planDest=null;
+  draw();updatePanels();
+};
+document.getElementById("btnPlanConfirm").onclick=()=>{if(plan)confirmPlan();};
 function toMenu(){
   closeOv();
   if(autoTimer){clearInterval(autoTimer);autoTimer=null;}
-  G=null;act=null;
+  G=null;act=null;setup=null;plan=null;setupQueue=[];planQueue=[];
   document.getElementById("battle").style.display="none";
   document.getElementById("menu").style.display="block";
 }
