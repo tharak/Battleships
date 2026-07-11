@@ -83,8 +83,8 @@
     </div>
     <div class="opts" id="movepick">
       <b>Movement:</b>
-      <label><input type="radio" name="movemode" value="0" checked> Sequential (one squadron at a time, as usual)</label>
-      <label><input type="radio" name="movemode" value="1"> Simultaneous (everyone plans a destination, then all move together — collisions destroy every squadron that ends a step on the same hex)</label>
+      <label><input type="radio" name="movemode" value="0" checked> Interleaved (one squadron at a time, alternating sides, as usual)</label>
+      <label><input type="radio" name="movemode" value="1"> All-at-once (each side moves &amp; fires every squadron it has before the other side gets a turn — you go first)</label>
     </div>
     <p style="color:var(--dim);max-width:70ch;font-size:12.5px">Any side you control deploys its own
     squadrons by hand before the battle starts (click your shaded zone); the AI picks a random
@@ -114,11 +114,6 @@
             <button id="btnSetupFlag">&#9733; Set flagship</button>
             <button id="btnSetupRemove" class="danger">Remove</button>
             <button id="btnSetupConfirm" class="primary">Confirm deployment</button>
-          </div>
-          <div id="planControls" style="display:none;flex-wrap:wrap;gap:6px">
-            <button id="btnPlanHold">Hold selected</button>
-            <button id="btnPlanClear">Clear all my orders</button>
-            <button id="btnPlanConfirm" class="primary">Confirm round</button>
           </div>
           <div class="kbd" id="kbdHint"><kbd>Q</kbd>/<kbd>E</kbd> turn · <kbd>W</kbd> forward ·
             <kbd>S</kbd> back · <kbd>F</kbd> fire mode · <kbd>Space</kbd> end · click a
@@ -325,15 +320,13 @@ let G=null;           // battle state
 let scen=null, ctrlMode=0;
 let act=null;         // human activation {u, mp, moved, fired, fireMode}
 let autoTimer=null;
-let moveMode=0;        // 0=sequential (one squadron activates at a time), 1=simultaneous (plan-then-resolve rounds)
+let moveMode=0;        // 0=interleaved (one squadron at a time, alternating sides), 1=all-at-once (one side fully activates, then the other)
 let setup=null;        // active manual deployment: {side, placed:[{pos,facing}], selected, flagShip}
 let setupQueue=[];     // remaining human-controlled sides still needing manual deployment
-let plan=null;         // active simultaneous-mode planning: {side, selected}
-let planQueue=[];      // remaining human-controlled sides still needing to plan this round
 
 function newBattle(){
   BREAK_AT=(SIZE>>1)+1;
-  act=null;setup=null;setupQueue=[];plan=null;planQueue=[];
+  act=null;setup=null;setupQueue=[];
   logEl.innerHTML="";
   log(`Scenario: ${scen.t} — ${SIZE} squadrons a side, breaks at ${BREAK_AT}`,"t");
   if(ctrlMode===3){ // spectate: unchanged -- both sides keep the scenario's exact fixed formation, no manual setup
@@ -363,8 +356,7 @@ function newBattle(){
 function startCombat(){
   const supTag=s=>s==="ok"?"":` (${s.toUpperCase()} SUPPLY)`;
   log(`Blue: ${G.fleets[0].name}${supTag(G.fleets[0].supply)} — Red: ${G.fleets[1].name}${supTag(G.fleets[1].supply)}`);
-  if(moveMode===1){startSimRound();}
-  else{newTurn();proceed();}
+  newTurn();proceed();
 }
 
 /* ---- manual deployment (setup phase) ---- */
@@ -582,6 +574,13 @@ function newTurn(){
   G.turn++;
   for(const f of G.fleets) for(const u of f.units) u.activated=false;
   G.lastActed=G.turn%2; // side (turn+1)%2 acts first, mirroring the sim
+  if(moveMode===1){
+    // All-at-once: one side fully activates before the other gets a turn.
+    // A single human-controlled side always goes first; otherwise (hotseat,
+    // spectate) alternate who opens each turn, same as interleaved mode does.
+    const humanSides=[0,1].filter(humanControls);
+    G.roundFirst=humanSides.length===1?humanSides[0]:(G.turn+1)%2;
+  }
   log(`— Turn ${G.turn} —`,"t");
 }
 function unactivated(side){return alive(side).filter(u=>!u.activated);}
@@ -598,6 +597,11 @@ function checkEnd(){
   return false;
 }
 function nextSide(){
+  if(moveMode===1){ // exhaust the round's first side entirely before the other side moves at all
+    if(unactivated(G.roundFirst).length) return G.roundFirst;
+    if(unactivated(1-G.roundFirst).length) return 1-G.roundFirst;
+    return null;
+  }
   const other=1-G.lastActed;
   if(unactivated(other).length) return other;
   if(unactivated(G.lastActed).length) return G.lastActed;
@@ -626,190 +630,6 @@ function proceed(){
   };
   if(ctrlMode===3){go();}
   else setTimeout(go,250);
-}
-
-/* ============ simultaneous movement mode ============ */
-// Same fire-arc/morale/destroy rules as sequential play; only how a round's
-// MOVEMENT is decided and resolved differs (plan-then-resolve-together
-// instead of one squadron activating at a time).
-function desiredDirFromPos(fromPos,goal){
-  const ang=angleBetween(fromPos,goal);
-  return argmin(range(0,5),d=>Math.abs(((DIR_ANGLE[d]-ang+180)%360+360)%360-180));
-}
-function startSimRound(){
-  if(G.over)return;
-  G.turn++;
-  for(const f of G.fleets) for(const u of f.units) u.planDest=null;
-  log(`— Round ${G.turn} —`,"t");
-  const humanSides=[0,1].filter(humanControls);
-  if(!humanSides.length){ // spectate: pace it like sequential AI-vs-AI instead of freezing the tab
-    setTimeout(()=>{
-      if(G.over)return;
-      for(const s of [0,1]) autoPlanAI(s);
-      resolveSimRound();
-    },250);
-    return;
-  }
-  planQueue=humanSides.slice(1);
-  beginPlanFor(humanSides[0]);
-}
-function beginPlanFor(side){
-  plan={side,selected:null};
-  log(`${sideName(side)}: plan your squadrons' moves for round ${G.turn}.`,"t");
-  draw();updatePanels();
-}
-function handlePlanClick(h){
-  const [c,r]=h;
-  const hit=alive(plan.side).find(u=>u.pos[0]===c&&u.pos[1]===r);
-  if(hit&&hit.state!==ROUTED){plan.selected=hit;draw();updatePanels();return;}
-  if(!plan.selected)return;
-  const u=plan.selected;
-  if(hexDist(u.pos,[c,r])>MP_MAX){
-    log(`${u.id} can't reach that hex this round (max ${MP_MAX}).`,"bad");return;
-  }
-  if(u.state===SHAKEN){ // same "may not close distance" restriction as sequential play
-    const ne=nearestEnemy(u);
-    if(ne&&hexDist([c,r],ne.pos)<hexDist(u.pos,ne.pos)){
-      log(`${u.id} is Shaken — it refuses an order that closes on the enemy.`,"bad");return;
-    }
-  }
-  u.planDest=[c,r];
-  draw();updatePanels();
-}
-function confirmPlan(){
-  for(const u of alive(plan.side)) if(!u.planDest) u.planDest=u.pos.slice();
-  plan=null;
-  if(planQueue.length){beginPlanFor(planQueue.shift());return;}
-  for(const s of [0,1]) if(!humanControls(s)) autoPlanAI(s);
-  resolveSimRound();
-}
-function autoPlanAI(side){ // destination-only version of aiActivate's movement logic
-  const hold=HOLD_FORMS.has(G.fleets[side].name);
-  for(const u of alive(side)){
-    if(u.state===ROUTED){continue;} // resolved separately, via rally-check-then-flee
-    const ne=nearestEnemy(u);
-    if(!ne||(hold&&hexDist(u.pos,ne.pos)<=RANGE+1)||(u.state===SHAKEN&&!hold)){
-      u.planDest=u.pos.slice();continue;
-    }
-    let pos=u.pos.slice();
-    for(let i=0;i<MP_MAX;i++){
-      if(hexDist(pos,ne.pos)<=RANGE)break;
-      const nx=neighbor(pos,desiredDirFromPos(pos,ne.pos));
-      if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS)break;
-      pos=nx;
-    }
-    u.planDest=pos;
-  }
-}
-// Builds a lockstep path of up to MP_MAX one-hex substeps toward dest,
-// turning to face (one substep, no hex change) when not already aligned --
-// same "turn OR move, one per MP" rule sequential play uses.
-function simBuildPath(u,dest){
-  const path=[];
-  let pos=u.pos.slice(), facing=u.facing;
-  for(let i=0;i<MP_MAX;i++){
-    if(pos[0]===dest[0]&&pos[1]===dest[1])break;
-    const d=desiredDirFromPos(pos,dest);
-    if(facing!==d){
-      const diff=((d-facing)%6+6)%6;
-      facing=(facing+(diff<=3?1:5))%6;
-      path.push({pos:pos.slice(),facing});
-      continue;
-    }
-    const nx=neighbor(pos,facing);
-    if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS){path.push({exit:true,facing});break;}
-    pos=nx;
-    path.push({pos:pos.slice(),facing});
-  }
-  return path;
-}
-function simFleeingPath(u){ // routed-unit variant of simBuildPath, mirrors flee()
-  const d=u.side===0?3:0;
-  const path=[];
-  let pos=u.pos.slice(), facing=u.facing;
-  for(let i=0;i<MP_MAX;i++){
-    if(facing!==d){
-      const diff=((d-facing)%6+6)%6;
-      facing=(facing+(diff<=3?1:5))%6;
-      path.push({pos:pos.slice(),facing});
-      continue;
-    }
-    const nx=neighbor(pos,facing);
-    if(nx[0]<0||nx[0]>=COLS||nx[1]<0||nx[1]>=ROWS){path.push({exit:true,facing});break;}
-    pos=nx;
-    path.push({pos:pos.slice(),facing});
-  }
-  return path;
-}
-function checkEndSim(){
-  if(G.over)return true;
-  for(const s of [0,1]) if(losses(s)>=BREAK_AT) return gameOver(1-s,"break");
-  if(G.turn>=MAX_TURNS){
-    const s0=alive(0).reduce((a,u)=>a+u.strength,0), s1=alive(1).reduce((a,u)=>a+u.strength,0);
-    return gameOver(s0===s1?null:(s0>s1?0:1),"time");
-  }
-  return false;
-}
-function resolveSimRound(){
-  const paths=new Map();
-  for(const f of G.fleets) for(const u of f.units){
-    if(!u.alive)continue;
-    if(u.state===ROUTED){
-      if(!u.hitSinceAct){
-        const bonus=inCommand(u)?1:0, r=d6();
-        if(r+bonus>=4){
-          u.state=SHAKEN;u.hitSinceAct=false;
-          log(`${u.id} RALLIES (${r}${bonus?"+1":""}) — now Shaken`,"good");
-          continue; // rallied: no movement this round
-        }
-        log(`${u.id} fails to rally (${r}${bonus?"+1":""}) and keeps running`);
-      }
-      u.hitSinceAct=false;
-      paths.set(u,simFleeingPath(u));
-    }else{
-      paths.set(u,simBuildPath(u,u.planDest||u.pos));
-    }
-  }
-  // Up to MP_MAX lockstep one-hex substeps, everyone moving together; ANY
-  // hex two or more squadrons occupy after a substep (whether moving into it
-  // or just standing there) destroys everyone on it -- checked every
-  // substep, not just at the final destination.
-  for(let step=0;step<MP_MAX;step++){
-    const exiting=[], effPos=new Map();
-    for(const f of G.fleets) for(const u of f.units){
-      if(!u.alive)continue;
-      const entry=paths.get(u)?.[step];
-      if(entry&&entry.exit){exiting.push(u);u.facing=entry.facing;continue;}
-      if(entry){u.facing=entry.facing;effPos.set(u,entry.pos);}
-      else effPos.set(u,u.pos);
-    }
-    for(const u of exiting){u.alive=false;u.exited=true;log(`  ${u.id} flees off the map`,"bad");}
-    const groups=new Map();
-    for(const [u,pos] of effPos){
-      const k=key(pos[0],pos[1]);
-      if(!groups.has(k))groups.set(k,[]);
-      groups.get(k).push({u,pos});
-    }
-    for(const [k,list] of groups){
-      if(list.length>1){
-        log(`  Collision at hex ${k}: ${list.map(x=>x.u.id).join(", ")} all destroyed`,"bad");
-        for(const {u} of list) destroy(u);
-      }else list[0].u.pos=list[0].pos;
-    }
-    if(checkEndSim())return;
-  }
-  // firing phase: every surviving non-routed squadron with a legal target fires
-  const shooters=[...alive(0),...alive(1)].filter(u=>u.state!==ROUTED).sort((a,b)=>a.id<b.id?-1:1);
-  for(const u of shooters){
-    if(!u.alive)continue;
-    const tgt=pickTarget(u);
-    if(tgt)fire(u,tgt);
-    if(checkEndSim())return;
-  }
-  for(const f of G.fleets) for(const u of f.units) u.planDest=null;
-  draw();updatePanels();
-  if(checkEndSim())return;
-  startSimRound();
 }
 
 /* human actions */
@@ -1008,25 +828,6 @@ function draw(){
       cx2.fillStyle=tint;cx2.fill();
     }
   }
-  // simultaneous-mode planning: ghost destination markers + a line back to
-  // the squadron's current hex, for the side currently planning
-  if(plan){
-    for(const u of alive(plan.side)){
-      if(!u.planDest)continue;
-      const [ux,uy]=hexCenter(u.pos[0],u.pos[1]);
-      const [x,y]=hexCenter(u.planDest[0],u.planDest[1]);
-      cx2.beginPath();cx2.moveTo(ux,uy);cx2.lineTo(x,y);
-      cx2.strokeStyle=plan.side===0?"#4a9eff88":"#ff5a5a88";cx2.lineWidth=1.5;cx2.stroke();
-      hexPath(x,y,HS-6);
-      cx2.setLineDash([3,2]);
-      cx2.strokeStyle=plan.side===0?"#4a9eff":"#ff5a5a";cx2.lineWidth=2;cx2.stroke();
-      cx2.setLineDash([]);
-    }
-    if(plan.selected){
-      const [x,y]=hexCenter(plan.selected.pos[0],plan.selected.pos[1]);
-      hexPath(x,y,HS-1);cx2.strokeStyle="#fff";cx2.lineWidth=2;cx2.stroke();
-    }
-  }
   // units
   for(const f of G.fleets)for(const u of f.units){
     if(!u.alive)continue;
@@ -1104,28 +905,10 @@ function updateSetupPanels(){
   document.getElementById("btnSetupRemove").disabled=!sel;
   document.getElementById("btnSetupConfirm").disabled=setup.placed.length!==SIZE;
 }
-function updatePlanPanels(){
-  document.getElementById("controls").style.display="none";
-  document.getElementById("setupControls").style.display="none";
-  document.getElementById("planControls").style.display="flex";
-  document.getElementById("kbdHint").style.display="none";
-  const st=document.getElementById("status");
-  const planned=alive(plan.side).filter(u=>u.planDest).length;
-  st.innerHTML=`<span class="who" style="color:var(--gold)">Round ${G.turn}</span> — `+
-    `<span style="color:${plan.side===0?"var(--blue)":"var(--red)"}">${sideName(plan.side)} planning</span> — `+
-    `${planned}/${alive(plan.side).length} ordered`;
-  const ai=document.getElementById("actinfo");
-  ai.innerHTML=plan.selected
-    ?`<b>${plan.selected.id}${plan.selected.flag?" ★":""}</b> selected — click a hex within ${MP_MAX} to set its destination, or Hold.`
-    :`Click one of your squadrons, then click where it should end this round.`;
-  document.getElementById("btnPlanHold").disabled=!plan.selected;
-}
 function updatePanels(){
   if(setup){updateSetupPanels();return;}
-  if(plan){updatePlanPanels();return;}
   document.getElementById("controls").style.display="flex";
   document.getElementById("setupControls").style.display="none";
-  document.getElementById("planControls").style.display="none";
   document.getElementById("kbdHint").style.display="";
   const st=document.getElementById("status");
   if(!G)return;
@@ -1175,8 +958,8 @@ function buildMenu(){
       document.getElementById("menu").style.display="none";
       document.getElementById("battle").style.display="block";
       const spect=ctrlMode===3;
-      document.getElementById("btnStep").style.display=(spect&&moveMode===0)?"":"none";
-      document.getElementById("btnAuto").style.display=(spect&&moveMode===0)?"":"none";
+      document.getElementById("btnStep").style.display=spect?"":"none";
+      document.getElementById("btnAuto").style.display=spect?"":"none";
       newBattle();
     };
     el.appendChild(b);
@@ -1187,7 +970,6 @@ cv.addEventListener("click",ev=>{
   const h=pixelToHex(ev.clientX-r.left,ev.clientY-r.top);
   if(!h)return;
   if(setup){handleSetupClick(h);return;}
-  if(plan){handlePlanClick(h);return;}
   if(!G||G.over||!act)return;
   const u=[...alive(0),...alive(1)].find(x=>x.pos[0]===h[0]&&x.pos[1]===h[1]);
   if(!u)return;
@@ -1215,7 +997,6 @@ document.addEventListener("keydown",ev=>{
     else if(ev.key==="e"||ev.key==="E")setupTurn(-1);
     return;
   }
-  if(plan)return; // planning is click/button-driven only
   if(!act||!act.u)return;
   if(ev.key==="q"||ev.key==="Q")doTurn(1);
   else if(ev.key==="e"||ev.key==="E")doTurn(-1);
@@ -1229,19 +1010,10 @@ document.getElementById("btnSetupR").onclick=()=>setupTurn(-1);
 document.getElementById("btnSetupFlag").onclick=setupToggleFlag;
 document.getElementById("btnSetupRemove").onclick=setupRemove;
 document.getElementById("btnSetupConfirm").onclick=confirmSetup;
-document.getElementById("btnPlanHold").onclick=()=>{
-  if(plan&&plan.selected){plan.selected.planDest=plan.selected.pos.slice();draw();updatePanels();}
-};
-document.getElementById("btnPlanClear").onclick=()=>{
-  if(!plan)return;
-  for(const u of alive(plan.side)) u.planDest=null;
-  draw();updatePanels();
-};
-document.getElementById("btnPlanConfirm").onclick=()=>{if(plan)confirmPlan();};
 function toMenu(){
   closeOv();
   if(autoTimer){clearInterval(autoTimer);autoTimer=null;}
-  G=null;act=null;setup=null;plan=null;setupQueue=[];planQueue=[];
+  G=null;act=null;setup=null;setupQueue=[];
   document.getElementById("battle").style.display="none";
   document.getElementById("menu").style.display="block";
 }
