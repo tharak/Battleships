@@ -29,7 +29,29 @@ function hexPath(x, y, s) {
   cx2.closePath();
 }
 
+// draw() is a thin wrapper: renderFrame() paints one frame, and whenever
+// there's an active transient effect (currently just laser beams, pushed by
+// systems.fire()) it also keeps a requestAnimationFrame loop alive to fade
+// them out over subsequent frames -- callers everywhere else just call
+// draw() once per action exactly as before and get the animation for free.
 export function draw(state) {
+  renderFrame(state);
+  ensureEffectLoop(state);
+}
+let rafRunning = false;
+function ensureEffectLoop(state) {
+  if (rafRunning || !state.effects.length) return;
+  rafRunning = true;
+  const tick = () => {
+    state.effects = state.effects.filter(e => performance.now() - e.start < e.dur);
+    renderFrame(state);
+    if (state.effects.length) requestAnimationFrame(tick);
+    else rafRunning = false;
+  };
+  requestAnimationFrame(tick);
+}
+
+function renderFrame(state) {
   cv.width = OX * 2 + HW * (COLS + 0.5); cv.height = OY * 2 + HS * 1.5 * (ROWS - 1) + HS * 2;
   cx2.fillStyle = BOARD_TINT.bg; cx2.fillRect(0, 0, cv.width, cv.height);
 
@@ -117,7 +139,7 @@ export function draw(state) {
     cx2.fill();
     const stateKey = morale === ROUTED ? "routed" : (morale === SHAKEN ? "shaken" : (activated ? "activated" : "steady"));
     cx2.strokeStyle = STATE_COLORS[stateKey] ?? SIDE_COLORS[side];
-    cx2.lineWidth = 1.5;
+    cx2.lineWidth = 3;
     cx2.stroke();
     if (act && act.u === e) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = 2; cx2.stroke(); }
     if (tgts.includes(e)) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.targetOutline; cx2.lineWidth = 2.5; cx2.stroke(); }
@@ -140,5 +162,23 @@ export function draw(state) {
       cx2.beginPath(); cx2.arc(x - 9 + i * 6, y + HS - 8, 2, 0, 7);
       cx2.fillStyle = i < strength ? ACCENT.pipFilled : ACCENT.pipEmpty; cx2.fill();
     }
+  }
+
+  // transient fire effects (laser beams), pushed by systems.fire() and
+  // faded out here based on elapsed time -- see ensureEffectLoop above.
+  const now = performance.now();
+  for (const eff of state.effects) {
+    if (eff.type !== "laser") continue;
+    const t = (now - eff.start) / eff.dur;
+    if (t >= 1) continue;
+    const [x1, y1] = hexCenter(eff.from[0], eff.from[1]);
+    const [x2, y2] = hexCenter(eff.to[0], eff.to[1]);
+    cx2.save();
+    cx2.globalAlpha = 1 - t;
+    cx2.strokeStyle = SIDE_COLORS[eff.side];
+    cx2.lineWidth = eff.hit ? 3 : 1.6;
+    cx2.beginPath(); cx2.moveTo(x1, y1); cx2.lineTo(x2, y2); cx2.stroke();
+    if (eff.hit) { cx2.globalAlpha = (1 - t) * 0.5; cx2.lineWidth = 7; cx2.stroke(); }
+    cx2.restore();
   }
 }

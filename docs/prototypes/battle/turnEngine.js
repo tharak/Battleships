@@ -21,7 +21,7 @@ const { SHAKEN, ROUTED } = MoraleState;
 
 export function newBattle(state) {
   state.BREAK_AT = (state.SIZE >> 1) + 1;
-  state.act = null; state.setup = null; state.setupQueue = [];
+  state.act = null; state.setup = null; state.setupQueue = []; state.effects = [];
   clearLog();
   log(`Scenario: ${state.scen.t} — ${state.SIZE} squadrons a side, breaks at ${state.BREAK_AT}`, "t");
   state.G = {

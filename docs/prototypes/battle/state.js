@@ -21,4 +21,5 @@ export const State = {
   autoTimer: null,
   setup: null,       // active manual deployment: {side, placed:[{pos,facing}], selected, flagShip} -- plain staging objects, not yet entities
   setupQueue: [],    // remaining human-controlled sides still needing manual deployment
+  effects: [],       // transient visual effects, e.g. {type:"laser", from:[c,r], to:[c,r], side, hit, start, dur} -- pushed by systems.js, drawn+expired by render.js
 };

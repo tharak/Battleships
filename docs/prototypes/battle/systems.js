@@ -63,6 +63,11 @@ export function fire(state, e, tgt) {
   for (let i = 0; i < dice; i++) { const r = d6(); rolls.push(r); if (r >= need) hits++; }
   log(`${Q.labelOf(state, e)} fires at ${Q.labelOf(state, tgt)} (${arc} arc, ${need}+): [${rolls.join(" ")}] → ${hits} hit${hits === 1 ? "" : "s"}`,
       hits ? sideCls(Q.sideOf(state, e)) : null);
+  state.effects.push({
+    type: "laser", from: Q.posOf(state, e), to: Q.posOf(state, tgt),
+    side: Q.sideOf(state, e), hit: hits > 0,
+    start: performance.now(), dur: hits > 0 ? 420 : 320,
+  });
   if (!hits) return;
   const tgtStrength = state.world.get(tgt, C.Strength);
   tgtStrength.value = Math.max(0, tgtStrength.value - hits);
