@@ -9,3 +9,13 @@ class_name StrategicSession
 ## fleets), non-null means resuming one already in progress.
 
 static var sim: StrategicSim = null
+
+## Issue #30: the guided-opening budget callout's own dismissal flag -- a
+## pure UI/tutorial concern, deliberately NOT on StrategicState (this
+## scene's own "no direct UI-to-sim pokes" architecture rule would be
+## broken by a cosmetic flag with no simulation meaning living there).
+## Lives here instead, alongside `sim`, for the SAME reason `sim` does:
+## process-lifetime state that must survive the battle-scene round-trip.
+## Reset to false by strategic_map.gd's own KEY_R restart handler
+## (alongside `sim = null`) so a genuinely new campaign shows it again.
+static var tutorial_budget_shown := false

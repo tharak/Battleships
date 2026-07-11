@@ -32,10 +32,10 @@ func step(stream: StrategicCommandStream) -> Array:
 	var events := _advance_fleets()
 	_advance_planets()
 	_advance_era_events_pre_rebellion()
-	_advance_rebellion()
+	events += _advance_rebellion()
 	_advance_supply()
 	_advance_economy()
-	_advance_removal()
+	events += _advance_removal()
 	_advance_era_events()
 	state.tick += 1
 	return events
@@ -84,11 +84,13 @@ func _advance_era_events_pre_rebellion() -> void:
 ## Issue #18: threshold escalation (strikes/riots/rebellion) and siege/retake,
 ## settled right after _advance_planets so this tick's freshly-drifted unrest
 ## (and any fresh rebellion/retake) is what _advance_economy actually reads.
-func _advance_rebellion() -> void:
+func _advance_rebellion() -> Array:
+	var events := []
 	var ids := state.planets.keys()
 	ids.sort()
 	for id in ids:
-		Rebellion.advance(state, id)
+		events += Rebellion.advance(state, id)
+	return events
 
 
 func _advance_supply() -> void:
@@ -124,9 +126,11 @@ func _advance_economy() -> void:
 ## Fixed side list (state.politics.keys()), same #16/#22 lesson already
 ## learned twice -- a side reduced to zero systems still has politics that
 ## must keep evolving, not freeze.
-func _advance_removal() -> void:
+func _advance_removal() -> Array:
+	var events := []
 	for side in state.politics.keys():
-		Removal.advance(state, side)
+		events += Removal.advance(state, side)
+	return events
 
 
 ## Issue #29: pretender + debt crunch, appended LAST -- no same-tick

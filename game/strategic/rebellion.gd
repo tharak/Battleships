@@ -104,6 +104,16 @@ static func advance(state: StrategicState, system_id: String) -> Array:
 
 	var p: Dictionary = state.planets[system_id]
 	var st := escalation_state(p["unrest"])
+	# Issue #30: a general calm/strikes/riots TRANSITION event, consumed by
+	# strategic/ticker.gd -- skipped for a transition TO "rebellion"
+	# specifically, which already has its own dedicated, more detailed event
+	# below (former_side), avoiding a duplicate ticker line for the same
+	# moment.
+	var last_stage: String = p.get("last_escalation_stage", "calm")
+	if st != last_stage:
+		if st != "rebellion":
+			events.append({"type": "stage_changed", "system": system_id, "from": last_stage, "to": st})
+		p["last_escalation_stage"] = st
 	if st == "rebellion":
 		state.system_owner[system_id] = REBEL_SIDE
 		p["siege_progress"] = 0.0

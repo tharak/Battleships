@@ -90,6 +90,11 @@ static func default_state() -> Dictionary:
 			# don't hard-reset" precedent as coup_insurance_debt).
 			"pretender_ticks_left": 0.0, "fired_pretender": false,
 			"fired_debt_crunch": false, "military_heavy_ticks": 0.0,
+			# Issue #30: last_removal_stage is Removal.advance's own stored
+			# comparison point for detecting a stable/plotting/crisis/removal
+			# TRANSITION (not just the current-tick value) -- consumed by
+			# strategic/ticker.gd via the event Removal.advance now returns.
+			"last_removal_stage": "stable",
 	}
 
 

@@ -29,6 +29,7 @@ func _init() -> void:
 	_test_debt_crunch_fires_only_once()
 
 	_test_current_threshold_bump_sums_instability_and_pretender()
+	_test_combined_threshold_bump_cannot_skip_an_escalation_stage()
 	_test_pretender_crisis_blocks_new_regime_actions()
 
 	_test_fortress_auction_does_not_fire_before_min_tick()
@@ -141,19 +142,36 @@ func _test_debt_crunch_fires_only_once() -> void:
 
 ## --- shared threshold_bump / regime interaction --------------------------------------------
 
+## Issue #30 design review's own caught bugfix: the raw sum of both sources
+## (10.0 + 15.0 = 25.0) would EXCEED a threshold gap (15.0), letting
+## escalation_state skip a whole stage in one tick -- current_threshold_bump
+## must clamp the combined result, not just add the two sources unbounded.
 func _test_current_threshold_bump_sums_instability_and_pretender() -> void:
 	var pol := {"instability_ticks_left": 5.0, "pretender_ticks_left": 5.0}
-	_check(is_equal_approx(Removal.current_threshold_bump(pol),
-		Removal.INSTABILITY_THRESHOLD_BUMP + Removal.PRETENDER_THRESHOLD_BUMP),
-		"current_threshold_bump: sums BOTH sources when both are active")
+	var raw_sum := Removal.INSTABILITY_THRESHOLD_BUMP + Removal.PRETENDER_THRESHOLD_BUMP
+	_check(raw_sum > Removal.THRESHOLD_BUMP_CLAMP, "test setup: the raw sum genuinely exceeds the clamp, so this test proves the clamp actually does something")
+	_check(is_equal_approx(Removal.current_threshold_bump(pol), Removal.THRESHOLD_BUMP_CLAMP),
+		"current_threshold_bump: both sources active is CLAMPED, not the raw unbounded sum -- a realm can never skip more than one stage per tick")
 
 	var pol_pretender_only := {"instability_ticks_left": 0.0, "pretender_ticks_left": 5.0}
 	_check(is_equal_approx(Removal.current_threshold_bump(pol_pretender_only), Removal.PRETENDER_THRESHOLD_BUMP),
-		"current_threshold_bump: pretender alone contributes its own bump")
+		"current_threshold_bump: pretender alone contributes its own bump (below the clamp, unaffected by it)")
 
 	var pol_neither := {"instability_ticks_left": 0.0, "pretender_ticks_left": 0.0}
 	_check(is_equal_approx(Removal.current_threshold_bump(pol_neither), 0.0),
 		"current_threshold_bump: exactly 0.0 when neither is active")
+
+
+## The direct regression for the bug itself, not just the clamp math in
+## isolation: with both sources active, a realm one point inside the
+## "stable" band must land on "plotting" (the very next, adjacent stage),
+## never jump straight to "crisis" or "removal".
+func _test_combined_threshold_bump_cannot_skip_an_escalation_stage() -> void:
+	var pol := {"instability_ticks_left": 5.0, "pretender_ticks_left": 5.0}
+	var support := Removal.PLOT_THRESHOLD + 1.0  # just inside "stable" at bump 0
+	var bump := Removal.current_threshold_bump(pol)
+	_check(Removal.escalation_state(support, bump) == "plotting",
+		"combined bump: a realm just inside 'stable' lands on 'plotting' with both sources active, never skipping straight to crisis/removal")
 
 
 func _test_pretender_crisis_blocks_new_regime_actions() -> void:

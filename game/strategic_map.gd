@@ -45,6 +45,9 @@ extends Node2D
 ##   K                          (issue #25) cycle your one fleet's commander to
 ##                               the next living roster candidate -- the crony-
 ##                               or-genius patronage dilemma, felt directly
+##   V                          (issue #30) toggle the supply overlay -- tints
+##                               each hop of your own off-territory fleets'
+##                               convoy routes green-to-red by throughput
 ##   Space                      pause / resume
 ##   1 / 2 / 3                  set speed to 1x / 2x / 4x
 ##   R                          (once the campaign ends) start a new one
@@ -77,6 +80,14 @@ var _selected_fleet := ""
 var _selected_system := ""
 var _campaign_over := false
 var _campaign_result := ""
+var _last_seen_announcement := ""   # issue #30: scene-local cache detecting a NEW
+                                      # era-event announcement to push to the ticker
+                                      # (see _process_ticker_events's own docstring
+                                      # for why resetting on a battle round-trip is a
+                                      # known, accepted minor limitation)
+var _supply_overlay_on := false
+var _supply_overlay_hops: Dictionary = {}   # hop-key -> {a, b, throughput}, recomputed
+                                              # once per tick (see _recompute_supply_overlay)
 
 
 func _ready() -> void:
@@ -147,7 +158,9 @@ func _process(delta: float) -> void:
 				ai.act(_sim.state, _stream)
 			for political_ai in _political_ai_realms:
 				political_ai.act(_sim.state, _stream)
-			_sim.step(_stream)
+			var tick_events := _sim.step(_stream)
+			_process_ticker_events(tick_events)
+			_recompute_supply_overlay()
 			# Issue #23: checked immediately, before contact detection/
 			# _launch_battle -- a design review caught that a same-tick
 			# removal would otherwise be masked by an unrelated tactical
@@ -290,6 +303,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R:
 				if _campaign_over:
 					StrategicSession.sim = null
+					StrategicSession.tutorial_budget_shown = false
 					get_tree().reload_current_scene()
 			KEY_T:
 				_cycle_policy("taxation", Planet.TAXATION_LEVELS)
@@ -317,6 +331,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_emit_regime_action("restrict_franchise")
 			KEY_K:
 				_cycle_commander()
+			KEY_V:
+				_supply_overlay_on = not _supply_overlay_on
 
 
 func _handle_click(pos: Vector2) -> void:
@@ -409,6 +425,7 @@ func _can_edit_selected_system() -> bool:
 ## realm -- budget is realm-wide, unlike planet policies, so no selected
 ## system is needed (or checked).
 func _shift_budget(field: String) -> void:
+	StrategicSession.tutorial_budget_shown = true   # issue #30: dismisses the guided-opening callout
 	var current := _pending_budget()
 	var others: Array[String] = ["budget_military", "budget_private", "budget_public"]
 	others.erase(field)
@@ -439,6 +456,79 @@ func _emit_regime_action(action: String) -> void:
 	_stream.record(StrategicCommands.make(_sim.state.tick, "set_regime_action", {
 		"side": PLAYER_SIDE, "action": action,
 	}))
+
+
+## Issue #30: consumes this tick's returned events (previously discarded --
+## _sim.step()'s own docstring already returns an events array, mirroring
+## sim/sim.gd's convention, but nothing here ever read it before now) and
+## pushes a Ticker message for each stage transition. Era-event announcements
+## (#29) aren't part of this event list (EraEvents mutates state directly,
+## doesn't return events) -- detected instead by comparing against
+## `_last_seen_announcement` each tick. This scene-local cache resets on the
+## battle-scene round-trip (a new strategic_map.gd instance is created), so
+## an already-seen era announcement could re-push into the ticker once right
+## after the player's first battle -- a known, accepted, purely cosmetic
+## limitation, not worth new persisted state to avoid.
+func _process_ticker_events(events: Array) -> void:
+	for event in events:
+		match event.get("type", ""):
+			"stage_changed":
+				Ticker.push(_sim.state, "%s: %s -> %s" % [event["system"], event["from"], event["to"]])
+			"removal_stage_changed":
+				Ticker.push(_sim.state, "side %d politics: %s -> %s" % [event["side"], event["from"], event["to"]])
+			"rebellion":
+				Ticker.push(_sim.state, "%s has rebelled against side %d!" % [event["system"], event["former_side"]])
+			"retaken":
+				Ticker.push(_sim.state, "%s retaken by side %d" % [event["system"], event["side"]])
+
+	var announcement: String = _sim.state.era_events.get("last_announcement", "")
+	if announcement != "" and announcement != _last_seen_announcement:
+		Ticker.push(_sim.state, announcement)
+		_last_seen_announcement = announcement
+
+
+## Issue #30: recomputed ONCE per tick (called right after _sim.step()
+## actually advances, never from _draw() itself) -- _draw() only ever reads
+## this already-computed cache, same "just read a stored field" precedent
+## the existing per-fleet supply ring already follows. Only the PLAYER's own
+## off-territory fleets' convoy routes are shown (this is "your" strategic
+## view, same scope as the coalition/budget panels). Keeps the WORST
+## (lowest) throughput per physical hop when multiple fleets share one --
+## deterministic and order-independent (unlike drawing each fleet's path
+## independently, which could show the same hop twice in conflicting colors
+## depending on dictionary iteration order).
+func _recompute_supply_overlay() -> void:
+	_supply_overlay_hops.clear()
+	for id in _sim.state.fleets.keys():
+		var f: Dictionary = _sim.state.fleets[id]
+		if f["side"] != PLAYER_SIDE:
+			continue
+		if _sim.state.system_owner.get(f["system"], -1) == PLAYER_SIDE:
+			continue  # on owned territory -- full supply, nothing to show
+		var path := Supply.owned_hop_path(_sim.state, PLAYER_SIDE, f["system"])
+		if path.is_empty():
+			continue
+		var t := Supply.throughput(_sim.state, id)
+		var prev := _owned_neighbor_of(path[0])
+		if prev == "":
+			continue  # shouldn't happen if owned_hop_path found a route, but stay defensive
+		for hop in path:
+			var key: String = prev + "-" + hop if prev < hop else hop + "-" + prev
+			var existing: float = _supply_overlay_hops.get(key, {}).get("throughput", 1.0)
+			_supply_overlay_hops[key] = {"a": prev, "b": hop, "throughput": minf(existing, t)}
+			prev = hop
+
+
+## `owned_hop_path` doesn't expose the OWNED system a route actually started
+## from -- reconstructed here via any owned neighbor of the path's first hop
+## (a documented, minor simplification vs. the BFS's own internal source
+## choice when a tie exists; cosmetically fine for a visualization, not used
+## for anything that affects real supply numbers).
+func _owned_neighbor_of(system_id: String) -> String:
+	for n in Galaxy.neighbors(system_id):
+		if _sim.state.system_owner.get(n, -1) == PLAYER_SIDE:
+			return n
+	return ""
 
 
 ## Same "read the latest still-pending command, not just committed sim state"
@@ -476,7 +566,8 @@ func _update_label() -> void:
 			_sim.state.tick, speed_txt, fleet_txt,
 			int(_sim.state.materiel.get(0, 0.0)), int(_sim.state.materiel.get(1, 0.0)), int(_sim.state.materiel.get(2, 0.0)),
 		]
-	_label.text += _era_event_text()
+	_label.text += _tutorial_text()
+	_label.text += _ticker_text()
 	_label.text += _home_front_warning_text()
 	_label.text += _coalition_text()
 	_label.text += _roster_text()
@@ -609,15 +700,31 @@ func _pending_commander(fleet_id: String) -> String:
 	return _sim.state.fleets[fleet_id].get("commander_id", Roster.DEFAULT_COMMANDER_ID)
 
 
-## Issue #29: a single current-event string, unconditionally surfaced --
-## deliberately minimal (one line, not a scrolling history/log). The full
-## ticker with two-tick advance warnings is issue #30's own scope, not built
-## here.
-func _era_event_text() -> String:
-	var announcement: String = _sim.state.era_events.get("last_announcement", "")
-	if announcement == "":
+## Issue #30's guided-opening callout (GDD §7/§9's "guided opening,"
+## trimmed to a text-only HUD block, not a new scene -- proportionate to a
+## vertical-slice UI pass, not a new onboarding subsystem, a deliberate scope
+## cut logged here same as every other issue's own adaptations). Shown until
+## the player's own FIRST set_budget command (StrategicSession.
+## tutorial_budget_shown, set in _shift_budget) -- directly targets this
+## issue's own showable outcome ("first budget decision unaided") rather
+## than a generic wall of text already covered by campaign_menu.gd's own
+## hint (movement/policy/regime keys).
+func _tutorial_text() -> String:
+	if StrategicSession.tutorial_budget_shown:
 		return ""
-	return "\n\n⚡ %s" % announcement
+	return "\n\n» New ruler: your budget slider (M/P/G, seen below) is your single most important control -- try it now."
+
+
+## Issue #30's event ticker (GDD §9): the last few entries of
+## `state.ticker` (Ticker.push, fed by escalation-stage transitions and era
+## events -- see _process_ticker_events). Supersedes #29's own single-line
+## `_era_event_text` (era announcements now flow into this same ticker).
+func _ticker_text() -> String:
+	if _sim.state.ticker.is_empty():
+		return ""
+	var lines := "\n\n⚡ "
+	lines += "\n⚡ ".join(_sim.state.ticker)
+	return lines
 
 
 ## Issue #21's showable outcome: "a build where the loudest threat is behind
@@ -711,6 +818,20 @@ func _draw() -> void:
 		var b: Vector2 = Galaxy.SYSTEMS[lane[1]]["pos"]
 		var seen: bool = visible.has(lane[0]) or visible.has(lane[1])
 		draw_line(a, b, Color(1, 1, 1, 0.35 if seen else 0.1), 2.0)
+
+	# Issue #30's supply overlay: only ever reads the already-computed
+	# _supply_overlay_hops cache (recomputed once per tick by
+	# _recompute_supply_overlay, never here) -- same green-to-red lerp the
+	# existing per-fleet supply ring below already uses, reused rather than
+	# a second color scheme.
+	if _supply_overlay_on:
+		for key in _supply_overlay_hops.keys():
+			var hop: Dictionary = _supply_overlay_hops[key]
+			var pa: Vector2 = Galaxy.SYSTEMS[hop["a"]]["pos"]
+			var pb: Vector2 = Galaxy.SYSTEMS[hop["b"]]["pos"]
+			var t: float = hop["throughput"]
+			var hop_color := Color(1.0, 0.35, 0.25).lerp(Color(0.3, 0.9, 0.4), t)
+			draw_line(pa, pb, hop_color, 5.0)
 
 	for id in Galaxy.SYSTEMS.keys():
 		var sys: Dictionary = Galaxy.SYSTEMS[id]

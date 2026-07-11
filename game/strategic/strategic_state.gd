@@ -52,6 +52,10 @@ class_name StrategicState
 ## era_events.gd for the full field list. Flat top-level shape, same
 ## precedent as system_owner/materiel, since fired_fortress_auction/
 ## first_contact_resolved genuinely don't belong to any one realm.
+##
+## `ticker`: a rolling event-history log (issue #30, GDD §9's event ticker)
+## -- see strategic/ticker.gd. A flat Array, capped at Ticker.MAX_ENTRIES,
+## oldest entries dropped first.
 
 var tick: int = 0  # weeks
 var fleets: Dictionary = {}  # id -> Dictionary
@@ -61,6 +65,7 @@ var planets: Dictionary = {}  # id (String) -> Dictionary
 var politics: Dictionary = {}  # side (int) -> Dictionary
 var roster: Dictionary = {}  # side (int) -> Dictionary
 var era_events: Dictionary = {}
+var ticker: Array = []
 
 
 func _init() -> void:

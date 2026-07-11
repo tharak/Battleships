@@ -35,6 +35,8 @@ func _init() -> void:
 	_test_regime_action_key_takes_effect_immediately_while_paused()
 	_test_coalition_panel_status_matches_removal_advance_during_instability_window()
 	_test_ready_applies_each_sides_campaign_config_start()
+	_test_supply_overlay_hop_computation_has_no_duplicate_or_conflicting_entries()
+	_test_tutorial_callout_shows_then_dismisses_then_reappears_on_a_new_campaign()
 
 	if _failures == 0:
 		print("ALL PASS")
@@ -426,3 +428,66 @@ func _test_ready_applies_each_sides_campaign_config_start() -> void:
 	CampaignConfig.player_start_id = "confederacy"
 	CampaignConfig.ai_b_start_id = "confederacy"
 	CampaignConfig.ai_c_start_id = "confederacy"
+
+
+## Issue #30: the DATA the supply overlay would draw, not _draw() itself --
+## same established workaround this file already uses elsewhere for
+## "headless can't test rendering" (_test_draw_does_not_crash_on_a_rebel_
+## owned_system checks SIDE_COLOR has the right key rather than invoking
+## _draw()). Two fleets sharing the A2-B2 hop is the exact scenario the
+## dedup/min-throughput logic exists for.
+func _test_supply_overlay_hop_computation_has_no_duplicate_or_conflicting_entries() -> void:
+	var map := _fresh_map()
+	map._process(0.0)  # materializes _ready()'s initial spawn_fleet commands
+	var home_fleet_id := ""
+	for id in map._sim.state.fleets.keys():
+		if map._sim.state.fleets[id]["side"] == map.PLAYER_SIDE:
+			home_fleet_id = id
+	_check(home_fleet_id != "", "test setup: the player has a fleet")
+
+	# B1/B2 set to neutral so a route THROUGH them is actually reachable --
+	# owned_hop_path is blocked by ENEMY-held territory (B1/B2 default to
+	# side 1), same "neutral is a friendly lane, enemy-held is not" rule
+	# test_supply.gd's own raiding tests already rely on. Move the player's
+	# fleet off-territory (B2, one hop past the A2 chokepoint) and add a
+	# SECOND synthetic fleet further out (B1), sharing the A2-B2 hop.
+	map._sim.state.system_owner["B2"] = -1
+	map._sim.state.system_owner["B1"] = -1
+	map._sim.state.fleets[home_fleet_id]["system"] = "B2"
+	map._sim.state.fleets[home_fleet_id]["supply"] = 100.0
+	map._sim.state.fleets["ExtraFleet"] = {"side": map.PLAYER_SIDE, "system": "B1", "dest": null, "progress": 0.0,
+		"path": [], "supply": 100.0, "preset": "line", "strength": 50, "commander_id": "fleet_commander"}
+
+	map._recompute_supply_overlay()
+
+	var shared_key := "A2-B2"
+	_check(map._supply_overlay_hops.has(shared_key), "supply overlay: the shared A2-B2 hop has exactly one entry, not a duplicate/conflicting pair")
+	var entry: Dictionary = map._supply_overlay_hops[shared_key]
+	_check(entry.has("a") and entry.has("b") and entry.has("throughput"), "supply overlay: each hop entry carries both endpoints and a throughput value")
+
+	var t_home := Supply.throughput(map._sim.state, home_fleet_id)
+	var t_extra := Supply.throughput(map._sim.state, "ExtraFleet")
+	_check(is_equal_approx(entry["throughput"], minf(t_home, t_extra)),
+		"supply overlay: a shared hop's entry keeps the WORST (lowest) throughput of the fleets using it, not an arbitrary/overwritten one")
+	map.free()
+
+
+## The direct regression for issue #30 design review's own caught storage-
+## location bug: the callout must live somewhere that (a) survives nothing
+## extra needed to dismiss correctly, and (b) actually RESETS on a genuinely
+## new campaign (KEY_R), not just "shown once, gone forever in this process."
+func _test_tutorial_callout_shows_then_dismisses_then_reappears_on_a_new_campaign() -> void:
+	StrategicSession.tutorial_budget_shown = false
+	var map := _fresh_map()
+	_check(map._tutorial_text() != "", "tutorial callout: shown on a fresh session before the budget slider is ever used")
+
+	map._shift_budget("budget_military")
+	_check(map._tutorial_text() == "", "tutorial callout: dismissed immediately once the budget slider is used")
+	map.free()
+
+	# The exact two lines strategic_map.gd's own KEY_R restart handler performs.
+	StrategicSession.sim = null
+	StrategicSession.tutorial_budget_shown = false
+	var map2 := _fresh_map()
+	_check(map2._tutorial_text() != "", "tutorial callout: reappears once a genuinely NEW campaign starts")
+	map2.free()

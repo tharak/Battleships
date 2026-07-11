@@ -168,8 +168,19 @@ static func apply_result(state: StrategicState, fleet_a: String, fleet_b: String
 	elif b_won:
 		state.system_owner[system_id] = b_side
 
-	Manpower.apply_casualties(state, a_side, maxi(0, a_old - maxi(a_strength_left, 0)))
-	Manpower.apply_casualties(state, b_side, maxi(0, b_old - maxi(b_strength_left, 0)))
+	var a_casualties: int = maxi(0, a_old - maxi(a_strength_left, 0))
+	var b_casualties: int = maxi(0, b_old - maxi(b_strength_left, 0))
+	Manpower.apply_casualties(state, a_side, a_casualties)
+	Manpower.apply_casualties(state, b_side, b_casualties)
+	# Issue #30: casualty reports pushed directly from here, not from
+	# Manpower.gd itself -- this file already mixes several orchestration
+	# concerns (unlike Manpower/Rebellion/Removal's own "pure, UI-agnostic"
+	# discipline), so a Ticker.push here is consistent with its existing
+	# role, not a new architectural coupling.
+	if a_casualties > 0:
+		Ticker.push(state, "side %d takes %d casualties" % [a_side, a_casualties])
+	if b_casualties > 0:
+		Ticker.push(state, "side %d takes %d casualties" % [b_side, b_casualties])
 
 	var a_bonus: float = EraEvents.FIRST_CONTACT_HERO_AMBITION_BONUS if (is_first_contact and a_won) else 0.0
 	var b_bonus: float = EraEvents.FIRST_CONTACT_HERO_AMBITION_BONUS if (is_first_contact and b_won) else 0.0

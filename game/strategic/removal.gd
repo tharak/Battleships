@@ -112,6 +112,21 @@ const INSTABILITY_THRESHOLD_BUMP := 10.0
 ## early campaign window per issue #29's own showable outcome.
 const PRETENDER_THRESHOLD_BUMP := 15.0
 
+## Issue #30 design-review-caught bugfix: INSTABILITY_THRESHOLD_BUMP (10.0)
+## and PRETENDER_THRESHOLD_BUMP (15.0) can BOTH be active at once (nothing
+## gates a pretender crisis on an active instability window), summing to
+## 25.0 -- which EXCEEDS both gaps between adjacent thresholds (PLOT_
+## THRESHOLD-CRISIS_THRESHOLD = 15, CRISIS_THRESHOLD-REMOVAL_THRESHOLD = 15).
+## A realm at support=41 ("stable" at bump 0) would read as "crisis" the
+## instant both sources are active, skipping "plotting" entirely in one
+## tick -- a real violation of GDD's own "no gotchas, two ticks before it
+## bites" design rule that #24/#29 shipped without catching. Fixed with the
+## same clamp precedent LOYALTY_BONUS_CLAMP already established elsewhere
+## in this file: the combined bump can never exceed one threshold-gap's
+## width, so escalation_state can never skip more than one stage per tick
+## no matter how many bump sources exist, current or future.
+const THRESHOLD_BUMP_CLAMP := 15.0
+
 
 ## GDD's own continuous-score philosophy (same as Planet's unrest): a
 ## weighted AVERAGE of seat satisfaction, not a binary per-seat "satisfied"
@@ -179,7 +194,7 @@ static func current_threshold_bump(pol: Dictionary) -> float:
 		bump += INSTABILITY_THRESHOLD_BUMP
 	if pol.get("pretender_ticks_left", 0.0) > 0.0:
 		bump += PRETENDER_THRESHOLD_BUMP
-	return bump
+	return minf(bump, THRESHOLD_BUMP_CLAMP)
 
 
 static func escalation_state(support: float, threshold_bump: float = 0.0) -> String:
@@ -196,12 +211,25 @@ static func escalation_state(support: float, threshold_bump: float = 0.0) -> Str
 ## One tick's worth of removal-crisis escalation for one realm. Called from
 ## strategic_sim.gd's _advance_removal(), right after _advance_economy (so
 ## this reads that same tick's freshly-drifted Politics.advance output).
-static func advance(state: StrategicState, side: int) -> void:
+## Returns an event list (issue #30, same "-> Array" shape Rebellion.advance
+## already established) -- a `{"type": "removal_stage_changed", ...}` event
+## on any stable/plotting/crisis/removal transition, consumed by strategic_
+## map.gd's ticker (ticker.gd). This file stays pure/side-agnostic either
+## way -- it only reports what changed, same "interpreting removed_flag...
+## is strategic_map.gd's job, not this file's" precedent already established
+## for the removal flag itself.
+static func advance(state: StrategicState, side: int) -> Array:
+	var events := []
 	var pol: Dictionary = state.politics[side]
 	var w: int = pol["seats"].size()
 	var support := effective_support(state, side)
 	var threshold_bump := current_threshold_bump(pol)
 	var st := escalation_state(support, threshold_bump)
+
+	var last_stage: String = pol.get("last_removal_stage", "stable")
+	if st != last_stage:
+		events.append({"type": "removal_stage_changed", "side": side, "from": last_stage, "to": st})
+		pol["last_removal_stage"] = st
 
 	if st == "crisis" or st == "removal":
 		for seat in pol["seats"].values():
@@ -231,6 +259,7 @@ static func advance(state: StrategicState, side: int) -> void:
 			pol["election_countdown"] = ELECTION_PERIOD_TICKS
 			if st == "removal":
 				_fire_removal(state, side, "election")
+	return events
 
 
 ## Symmetric for EVERY side (player and AI alike) -- deliberately does NOT

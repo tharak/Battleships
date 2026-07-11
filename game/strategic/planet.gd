@@ -98,6 +98,11 @@ static func default_state() -> Dictionary:
 		# in-progress voluntary defection to a neighboring realm, the
 		# unsieged sibling of siege_progress/siege_side above.
 		"rebelled_from": -1, "defection_progress": 0.0, "defection_side": -1,
+		# Issue #30: last_escalation_stage is Rebellion.advance's own stored
+		# comparison point for detecting a calm/strikes/riots TRANSITION (not
+		# just the current-tick value) -- consumed by strategic/ticker.gd via
+		# the event Rebellion.advance already returns.
+		"last_escalation_stage": "calm",
 	}
 
 
