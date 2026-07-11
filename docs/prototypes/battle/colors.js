@@ -4,14 +4,17 @@
 
 export const SIDE_COLORS = { 0: "#4a9eff", 1: "#ff5a5a" };
 
+const DARK = "#0b0e14"; // also used for label text/arrows below -- the board's near-black
+
 // A squadron's hex fill is always its faction's SIDE_COLORS -- state is
 // shown entirely via the border color, one explicit entry per state here.
-// `null` means "use the side color" (Steady has no accent of its own, so
-// its border just matches the fill). Precedence when more than one applies
-// (e.g. a Shaken squadron that already acted this turn): routed > shaken >
-// activated > steady, applied in render.js.
+// Steady gets its own dark accent (not the side color) so its border is
+// always visibly distinct from the fill -- a same-color border would be
+// invisible no matter how thick it's drawn. Precedence when more than one
+// applies (e.g. a Shaken squadron that already acted this turn): routed >
+// shaken > activated > steady, applied in render.js.
 export const STATE_COLORS = {
-  steady:    null,
+  steady:    DARK,
   shaken:    "#ffd166", // yellow
   routed:    "#ff3333", // red
   activated: "#8892ab", // grey
@@ -21,7 +24,7 @@ export const ACCENT = {
   flagshipArrow: "#ffd166",
   selectionOutline: "#ffffff",
   targetOutline: "#ff3333",
-  labelText: "#0b0e14",   // squadron id / flagship star / non-flagship arrow fill
+  labelText: DARK,   // squadron id / flagship star / non-flagship arrow fill
   pipFilled: "#ffffff",
   pipEmpty: "#ffffff33",
 };

@@ -138,7 +138,7 @@ function renderFrame(state) {
     cx2.fillStyle = SIDE_COLORS[side];
     cx2.fill();
     const stateKey = morale === ROUTED ? "routed" : (morale === SHAKEN ? "shaken" : (activated ? "activated" : "steady"));
-    cx2.strokeStyle = STATE_COLORS[stateKey] ?? SIDE_COLORS[side];
+    cx2.strokeStyle = STATE_COLORS[stateKey];
     cx2.lineWidth = 3;
     cx2.stroke();
     if (act && act.u === e) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = 2; cx2.stroke(); }
