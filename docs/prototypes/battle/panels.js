@@ -64,7 +64,7 @@ export function updatePanels(state) {
     ai.innerHTML = `<b>${Q.labelOf(state, u)}${Q.isFlagship(state, u) ? " ★" : ""}</b> — str ${Q.strengthOf(state, u)}, ${STATE_NAME[Q.moraleOf(state, u)]}, ` +
       `${act.cmd ? "in command (move + fire)" : "OUT of command (move OR fire)"}<br>` +
       `MP ${act.mp}/${MP_MAX}${act.fired ? " · has fired" : ""}` +
-      (act.fireMode ? ` · <span style="color:var(--red)">pick a highlighted target</span>` : "") +
+      (act.fireMode ? ` · <span style="color:var(--green)">pick a highlighted target</span>` : "") +
       (Q.canSwitchSelection(state) ? `<br><span style="color:var(--dim)">Changed your mind? Click another un-activated squadron to switch — nothing's committed yet.</span>` : "");
     btns.L.disabled = btns.R.disabled = btns.F.disabled = !Q.canMove(state);
     btns.B.disabled = !Q.canBack(state);

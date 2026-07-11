@@ -23,7 +23,7 @@ export const STATE_COLORS = {
 export const ACCENT = {
   flagshipArrow: "#ffd166",
   selectionOutline: "#ffffff",
-  targetOutline: "#ff3333",
+  targetOutline: "#4cd97b", // green -- matches the --green CSS accent used for "good" log lines
   labelText: DARK,   // squadron id / flagship star / non-flagship arrow fill
   pipFilled: "#ffffff",
   pipEmpty: "#ffffff33",
