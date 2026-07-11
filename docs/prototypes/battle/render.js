@@ -4,6 +4,7 @@ import { COLS, ROWS, RANGE, CMD_R, HS, HW, OX, OY, MoraleState } from "./config.
 import { DIR_ANGLE, hexDist, losClear, inFireArc, key } from "./hexmath.js";
 import { inSetupZone } from "./formations.js";
 import { SIDE_COLORS, STATE_COLORS, ACCENT, BOARD_TINT } from "./colors.js";
+import { LINE_WIDTH, LASER_HALO_ALPHA } from "./dimensions.js";
 import * as Q from "./queries.js";
 
 const { SHAKEN, ROUTED } = MoraleState;
@@ -74,7 +75,7 @@ function renderFrame(state) {
     hexPath(x, y, HS - 0.6);
     cx2.fillStyle = zone.has(key(c, r)) ? BOARD_TINT.fireZone : BOARD_TINT.gridCell;
     cx2.fill();
-    cx2.strokeStyle = BOARD_TINT.gridLine; cx2.lineWidth = 1; cx2.stroke();
+    cx2.strokeStyle = BOARD_TINT.gridLine; cx2.lineWidth = LINE_WIDTH.grid; cx2.stroke();
   }
   if (!state.G) return;
 
@@ -95,9 +96,9 @@ function renderFrame(state) {
       hexPath(x, y, HS - 3.5);
       cx2.fillStyle = SIDE_COLORS[setup.side]; cx2.fill();
       cx2.strokeStyle = p === setup.flagShip ? ACCENT.flagshipArrow : ACCENT.labelText;
-      cx2.lineWidth = p === setup.flagShip ? 2.5 : 1.5;
+      cx2.lineWidth = p === setup.flagShip ? LINE_WIDTH.setupFlagshipBorder : LINE_WIDTH.setupShipBorder;
       cx2.stroke();
-      if (p === setup.selected) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = 2; cx2.stroke(); }
+      if (p === setup.selected) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = LINE_WIDTH.setupSelectionOutline; cx2.stroke(); }
       const a = DIR_ANGLE[p.facing] * Math.PI / 180;
       cx2.beginPath();
       cx2.moveTo(x + Math.cos(a) * (HS - 4), y + Math.sin(a) * (HS - 4));
@@ -139,10 +140,10 @@ function renderFrame(state) {
     cx2.fill();
     const stateKey = morale === ROUTED ? "routed" : (morale === SHAKEN ? "shaken" : (activated ? "activated" : "steady"));
     cx2.strokeStyle = STATE_COLORS[stateKey];
-    cx2.lineWidth = 1.5;
+    cx2.lineWidth = LINE_WIDTH.stateBorder;
     cx2.stroke();
-    if (act && act.u === e) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = 2; cx2.stroke(); }
-    if (tgts.includes(e)) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.targetOutline; cx2.lineWidth = 2.5; cx2.stroke(); }
+    if (act && act.u === e) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.selectionOutline; cx2.lineWidth = LINE_WIDTH.selectionOutline; cx2.stroke(); }
+    if (tgts.includes(e)) { hexPath(x, y, HS - 1); cx2.strokeStyle = ACCENT.targetOutline; cx2.lineWidth = LINE_WIDTH.targetOutline; cx2.stroke(); }
     // facing arrow -- gold for the flagship (also keeps it from blending
     // into the ★ label, which is drawn in the same dark color as a plain
     // arrow would be) so it doubles as an at-a-glance flagship marker.
@@ -176,9 +177,9 @@ function renderFrame(state) {
     cx2.save();
     cx2.globalAlpha = 1 - t;
     cx2.strokeStyle = SIDE_COLORS[eff.side];
-    cx2.lineWidth = eff.hit ? 3 : 1.6;
+    cx2.lineWidth = eff.hit ? LINE_WIDTH.laserHit : LINE_WIDTH.laserMiss;
     cx2.beginPath(); cx2.moveTo(x1, y1); cx2.lineTo(x2, y2); cx2.stroke();
-    if (eff.hit) { cx2.globalAlpha = (1 - t) * 0.5; cx2.lineWidth = 7; cx2.stroke(); }
+    if (eff.hit) { cx2.globalAlpha = (1 - t) * LASER_HALO_ALPHA; cx2.lineWidth = LINE_WIDTH.laserHitHalo; cx2.stroke(); }
     cx2.restore();
   }
 }

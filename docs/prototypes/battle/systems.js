@@ -5,6 +5,7 @@
 import { log } from "./panels.js";
 import { hexDist, neighbor, angleBetween, argmin, range, DIR_ANGLE, key, incomingArc } from "./hexmath.js";
 import { COLS, ROWS, RANGE, MP_MAX, HOLD_FORMS, MoraleState, sideName, sideCls } from "./config.js";
+import { LASER_DURATION } from "./dimensions.js";
 import * as C from "./components.js";
 import * as Q from "./queries.js";
 
@@ -66,7 +67,7 @@ export function fire(state, e, tgt) {
   state.effects.push({
     type: "laser", from: Q.posOf(state, e), to: Q.posOf(state, tgt),
     side: Q.sideOf(state, e), hit: hits > 0,
-    start: performance.now(), dur: hits > 0 ? 420 : 320,
+    start: performance.now(), dur: hits > 0 ? LASER_DURATION.hit : LASER_DURATION.miss,
   });
   if (!hits) return;
   const tgtStrength = state.world.get(tgt, C.Strength);
