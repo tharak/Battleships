@@ -334,6 +334,7 @@ let planQueue=[];      // remaining human-controlled sides still needing to plan
 function newBattle(){
   BREAK_AT=(SIZE>>1)+1;
   act=null;setup=null;setupQueue=[];plan=null;planQueue=[];
+  animPos=new Map();effects=[];
   logEl.innerHTML="";
   log(`Scenario: ${scen.t} — ${SIZE} squadrons a side, breaks at ${BREAK_AT}`,"t");
   if(ctrlMode===3){ // spectate: unchanged -- both sides keep the scenario's exact fixed formation, no manual setup
@@ -495,6 +496,9 @@ function fire(u,tgt){
   for(let i=0;i<dice;i++){const r=d6();rolls.push(r);if(r>=need)hits++;}
   log(`${u.id} fires at ${tgt.id} (${arc} arc, ${need}+): [${rolls.join(" ")}] → ${hits} hit${hits===1?"":"s"}`,
       hits?sideCls(u.side):null);
+  const [fx,fy]=hexCenter(u.pos[0],u.pos[1]), [tx,ty]=hexCenter(tgt.pos[0],tgt.pos[1]);
+  effects.push({type:"laser",x1:fx,y1:fy,x2:tx,y2:ty,
+    color:u.side===0?"#4a9eff":"#ff5a5a", hit:hits>0, start:performance.now(), dur:hits>0?420:320});
   if(!hits) return;
   tgt.strength=Math.max(0,tgt.strength-hits);
   tgt.hitSinceAct=true;
@@ -750,6 +754,12 @@ function checkEndSim(){
   }
   return false;
 }
+// Movement/collisions/firing are all paced in real time (setTimeout chains,
+// same precedent as the sequential engine's own setTimeout(go,250) between
+// AI activations) rather than resolved instantly -- otherwise the whole
+// point of "everyone moves together, collisions happen mid-move" would
+// never actually be visible: it'd all be decided before a single frame of
+// the movement animation had a chance to play.
 function resolveSimRound(){
   const paths=new Map();
   for(const f of G.fleets) for(const u of f.units){
@@ -770,46 +780,65 @@ function resolveSimRound(){
       paths.set(u,simBuildPath(u,u.planDest||u.pos));
     }
   }
-  // Up to MP_MAX lockstep one-hex substeps, everyone moving together; ANY
-  // hex two or more squadrons occupy after a substep (whether moving into it
-  // or just standing there) destroys everyone on it -- checked every
-  // substep, not just at the final destination.
-  for(let step=0;step<MP_MAX;step++){
-    const exiting=[], effPos=new Map();
-    for(const f of G.fleets) for(const u of f.units){
-      if(!u.alive)continue;
-      const entry=paths.get(u)?.[step];
-      if(entry&&entry.exit){exiting.push(u);u.facing=entry.facing;continue;}
-      if(entry){u.facing=entry.facing;effPos.set(u,entry.pos);}
-      else effPos.set(u,u.pos);
-    }
-    for(const u of exiting){u.alive=false;u.exited=true;log(`  ${u.id} flees off the map`,"bad");}
-    const groups=new Map();
-    for(const [u,pos] of effPos){
-      const k=key(pos[0],pos[1]);
-      if(!groups.has(k))groups.set(k,[]);
-      groups.get(k).push({u,pos});
-    }
-    for(const [k,list] of groups){
-      if(list.length>1){
-        log(`  Collision at hex ${k}: ${list.map(x=>x.u.id).join(", ")} all destroyed`,"bad");
-        for(const {u} of list) destroy(u);
-      }else list[0].u.pos=list[0].pos;
-    }
-    if(checkEndSim())return;
-  }
-  // firing phase: every surviving non-routed squadron with a legal target fires
-  const shooters=[...alive(0),...alive(1)].filter(u=>u.state!==ROUTED).sort((a,b)=>a.id<b.id?-1:1);
-  for(const u of shooters){
+  simMoveStep(paths,0);
+}
+// Up to MP_MAX lockstep one-hex substeps, everyone moving together. Every
+// unit's position for THIS substep (movers and stationary units alike) is
+// committed and drawn first -- so a doomed squadron is seen gliding onto the
+// shared hex -- and only after a beat do collisions actually destroy anyone,
+// checked every substep, not just at the final destination.
+function simMoveStep(paths,step){
+  if(G.over)return;
+  if(step>=MP_MAX){simFirePhase(shootOrder(),0);return;}
+  const exiting=[], effPos=new Map();
+  for(const f of G.fleets) for(const u of f.units){
     if(!u.alive)continue;
-    const tgt=pickTarget(u);
-    if(tgt)fire(u,tgt);
-    if(checkEndSim())return;
+    const entry=paths.get(u)?.[step];
+    if(entry&&entry.exit){exiting.push(u);u.facing=entry.facing;continue;}
+    if(entry){u.facing=entry.facing;effPos.set(u,entry.pos);}
+    else effPos.set(u,u.pos);
   }
-  for(const f of G.fleets) for(const u of f.units) u.planDest=null;
+  for(const u of exiting){u.alive=false;u.exited=true;log(`  ${u.id} flees off the map`,"bad");}
+  const groups=new Map();
+  for(const [u,pos] of effPos){
+    u.pos=pos;
+    const k=key(pos[0],pos[1]);
+    if(!groups.has(k))groups.set(k,[]);
+    groups.get(k).push(u);
+  }
   draw();updatePanels();
   if(checkEndSim())return;
-  startSimRound();
+  setTimeout(()=>{
+    if(G.over)return;
+    for(const [k,list] of groups){
+      if(list.length>1){
+        log(`  Collision at hex ${k}: ${list.map(u=>u.id).join(", ")} all destroyed`,"bad");
+        for(const u of list) destroy(u);
+      }
+    }
+    draw();updatePanels();
+    if(checkEndSim())return;
+    setTimeout(()=>simMoveStep(paths,step+1),240);
+  },260);
+}
+const shootOrder=()=>[...alive(0),...alive(1)].filter(u=>u.state!==ROUTED).sort((a,b)=>a.id<b.id?-1:1);
+function simFirePhase(shooters,i){
+  if(G.over)return;
+  if(i>=shooters.length){
+    for(const f of G.fleets) for(const u of f.units) u.planDest=null;
+    draw();updatePanels();
+    if(checkEndSim())return;
+    startSimRound();
+    return;
+  }
+  const u=shooters[i];
+  if(!u.alive){simFirePhase(shooters,i+1);return;}
+  const tgt=pickTarget(u);
+  if(!tgt){simFirePhase(shooters,i+1);return;}
+  fire(u,tgt);
+  draw();updatePanels();
+  if(checkEndSim())return;
+  setTimeout(()=>simFirePhase(shooters,i+1),260);
 }
 
 /* human actions */
@@ -939,7 +968,50 @@ function hexPath(x,y,s){
   }
   cx2.closePath();
 }
+
+/* ============ animation ============ */
+// Ships glide toward their true hex position instead of teleporting there,
+// and fired shots leave a brief laser streak. draw() (called from all the
+// existing state-mutation call sites, unchanged) always paints one frame
+// immediately AND makes sure a requestAnimationFrame loop is running to
+// keep painting until every glide/effect has settled -- so nothing here
+// required touching how/when the rest of the game calls draw().
+let animPos=new Map();  // unit -> {x,y} rendered pixel pos, eases toward hexCenter(u.pos)
+let effects=[];         // transient fx: {type:'laser', x1,y1,x2,y2,color,hit,start,dur}
+let rafRunning=false, lastTick=null;
+function ensureAnimLoop(){
+  if(rafRunning)return;
+  rafRunning=true;lastTick=performance.now();
+  requestAnimationFrame(rafStep);
+}
+function rafStep(ts){
+  const dt=Math.min(64,ts-lastTick);lastTick=ts;
+  const moving=advanceAnim(dt);
+  effects=effects.filter(e=>performance.now()-e.start<e.dur);
+  renderFrame();
+  if(moving||effects.length){requestAnimationFrame(rafStep);}
+  else{rafRunning=false;}
+}
+function advanceAnim(dt){
+  if(!G)return false;
+  let active=false;
+  for(const f of G.fleets)for(const u of f.units){
+    const target=hexCenter(u.pos[0],u.pos[1]);
+    let cur=animPos.get(u);
+    if(!cur){animPos.set(u,{x:target[0],y:target[1]});continue;}
+    const dx=target[0]-cur.x, dy=target[1]-cur.y, dist=Math.hypot(dx,dy);
+    if(dist<0.6){cur.x=target[0];cur.y=target[1];continue;}
+    active=true;
+    const step=Math.min(1,dt/110);
+    cur.x+=dx*step;cur.y+=dy*step;
+  }
+  return active;
+}
 function draw(){
+  renderFrame();
+  ensureAnimLoop();
+}
+function renderFrame(){
   cv.width=OX*2+HW*(COLS+0.5); cv.height=OY*2+HS*1.5*(ROWS-1)+HS*2;
   cx2.fillStyle="#0b0e14";cx2.fillRect(0,0,cv.width,cv.height);
   // fire-zone shading for selected human unit
@@ -1030,7 +1102,8 @@ function draw(){
   // units
   for(const f of G.fleets)for(const u of f.units){
     if(!u.alive)continue;
-    const [x,y]=hexCenter(u.pos[0],u.pos[1]);
+    const ap=animPos.get(u);
+    const [x,y]=ap?[ap.x,ap.y]:hexCenter(u.pos[0],u.pos[1]);
     const col=u.side===0?"#4a9eff":"#ff5a5a";
     hexPath(x,y,HS-3.5);
     // ROUTED and "already acted this turn" (activated) are both grays, but
@@ -1066,6 +1139,21 @@ function draw(){
       cx2.fillStyle="#ffd166";cx2.font="bold 13px system-ui";cx2.textAlign="center";
       cx2.fillText("!",x+HS-6,y-HS+12);
     }
+  }
+  // laser streaks -- fade out over their `dur`, hits drawn brighter/thicker
+  // with a soft glow pass so a hit reads differently from a miss at a glance.
+  const now=performance.now();
+  for(const e of effects){
+    if(e.type!=="laser")continue;
+    const t=(now-e.start)/e.dur;
+    if(t>=1)continue;
+    cx2.save();
+    cx2.globalAlpha=1-t;
+    cx2.strokeStyle=e.color;
+    cx2.lineWidth=e.hit?3:1.6;
+    cx2.beginPath();cx2.moveTo(e.x1,e.y1);cx2.lineTo(e.x2,e.y2);cx2.stroke();
+    if(e.hit){cx2.globalAlpha=(1-t)*0.5;cx2.lineWidth=7;cx2.stroke();}
+    cx2.restore();
   }
 }
 function shade(hex,f){
