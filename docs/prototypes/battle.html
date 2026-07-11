@@ -35,9 +35,16 @@
       <label><input type="radio" name="movemode" value="0" checked> Interleaved (one squadron at a time, alternating sides, as usual)</label>
       <label><input type="radio" name="movemode" value="1"> All-at-once (each side moves &amp; fires every squadron it has before the other side gets a turn — you go first)</label>
     </div>
-    <p style="color:var(--dim);max-width:70ch;font-size:12.5px">Any side you control deploys its own
-    squadrons by hand before the battle starts (click your shaded zone); the AI picks a random
-    formation once you're done. Scenario formations below still apply to a spectated AI-vs-AI match.</p>
+    <div class="opts" id="deploypick">
+      <b>Deployment:</b>
+      <label><input type="radio" name="deploymode" value="0" checked> Manual placement (place your own squadrons by hand before the battle)</label>
+      <label><input type="radio" name="deploymode" value="1"> Battle formation (both sides use the scenario's fixed formation below, like a spectated match)</label>
+    </div>
+    <p style="color:var(--dim);max-width:70ch;font-size:12.5px">With manual placement, any side you
+    control deploys its own squadrons by hand before the battle starts (click your shaded zone) and
+    the AI picks a random formation once you're done. With battle formation, both sides start in the
+    scenario's exact fixed formation — useful for testing whether your play beats the baseline in
+    that specific matchup. Spectated (AI vs AI) matches always use the fixed formation.</p>
     <div id="scenlist"></div>
   </div>
 

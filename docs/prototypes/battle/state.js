@@ -16,6 +16,7 @@ export const State = {
   SIZE: 9,
   BREAK_AT: 5,
   moveMode: 0,       // 0=interleaved (one squadron at a time, alternating sides), 1=all-at-once (one side fully activates, then the other)
+  deployMode: 0,     // 0=manual placement (human sides place by hand, AI gets a random formation), 1=battle formation (both sides use the scenario's fixed formation, like spectate)
   act: null,         // human activation {u:entity, mp, moved, fired, fireMode, side, cmd}
   autoTimer: null,
   setup: null,       // active manual deployment: {side, placed:[{pos,facing}], selected, flagShip} -- plain staging objects, not yet entities

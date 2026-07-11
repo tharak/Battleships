@@ -31,7 +31,11 @@ export function newBattle(state) {
       { name: null, supply: state.scen.supB || "ok", flagLost: false, roster: [] },
     ],
   };
-  if (state.ctrlMode === 3) { // spectate: unchanged -- both sides keep the scenario's exact fixed formation, no manual setup
+  // Spectate always uses the scenario's exact fixed formation (no manual
+  // setup to spectate); "battle formation" deployment mode does the same
+  // for any control mode, so a human can take over one of the exact
+  // benchmarked matchups instead of freely placing their own squadrons.
+  if (state.ctrlMode === 3 || state.deployMode === 1) {
     state.G.fleets[0].name = state.scen.a; deployFormation(state, state.scen.a, 0);
     state.G.fleets[1].name = state.scen.b; deployFormation(state, state.scen.b, 1);
     startCombat(state);
